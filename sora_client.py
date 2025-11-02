@@ -268,7 +268,7 @@ class SoraClient:
     def wait_for_completion(
         self,
         task_id: str,
-        max_wait_time: int = 600,
+        max_wait_time: int = 1200,
         poll_interval: int = 10
     ) -> Dict:
         """
