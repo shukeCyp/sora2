@@ -80,6 +80,11 @@ class TaskListWidget(QWidget):
         self.add_task_btn = PrimaryPushButton('添加任务')
         self.add_task_btn.clicked.connect(self.show_add_task_dialog)
         header_layout.addWidget(self.add_task_btn)
+        
+        # 批量添加任务按钮
+        self.batch_add_task_btn = PushButton('批量添加')
+        self.batch_add_task_btn.clicked.connect(self.show_batch_add_task_dialog)
+        header_layout.addWidget(self.batch_add_task_btn)
 
         # 失败原因说明按钮
         self.failure_reason_btn = PushButton('失败原因')
@@ -312,7 +317,7 @@ class TaskListWidget(QWidget):
         status = task.get('status', '')
         if status == 'completed' and video_url:
             download_action = Action(FluentIcon.DOWNLOAD, "下载视频")
-            download_action.triggered.connect(lambda: self.download_task_video(video_url))
+            download_action.triggered.connect(lambda: self.download_task_video(video_url, task))
             menu.addAction(download_action)
         else:
             download_action = Action(FluentIcon.DOWNLOAD, "下载视频")
@@ -475,25 +480,21 @@ class TaskListWidget(QWidget):
         import random
         for index, task in enumerate(selected_tasks_data, start=1):
             video_url = task.get('video_url')
-            # 使用任务ID的最后8位，并移除特殊字符
-            task_id = task.get('task_id', 'unknown')
-            # 只保留字母和数字，移除横线等特殊字符
-            clean_task_id = ''.join(c for c in task_id if c.isalnum())[-8:]
             
-            # 使用提示词的前30个字符作为文件名的一部分
+            # 使用提示词的前20个字符作为文件名的一部分，只保留字母和数字
             prompt = task.get('prompt', '')
-            # 清理提示词中的非法文件名字符
-            clean_prompt = ''.join(c for c in prompt if c.isalnum() or c in (' ', '-', '_')).strip()
-            # 取前30个字符并替换空格为下划线
-            prompt_part = clean_prompt[:30].replace(' ', '_') if clean_prompt else 'untitled'
+            # 只保留字母和数字，去除其他符号和字符
+            clean_prompt = ''.join(c for c in prompt if c.isalnum()).strip()
+            # 取前20个字符，如果不足20个字符则使用全部
+            prompt_part = clean_prompt[:20] if clean_prompt else 'untitled'
             
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             # 使用索引和随机数确保文件名唯一
             random_suffix = random.randint(100, 999)
-            filename = f"sora_{prompt_part}_{timestamp}_{index:02d}_{random_suffix}.mp4"
+            filename = f"{prompt_part}_{timestamp}_{index:02d}_{random_suffix}.mp4"
             save_path = str(Path(video_save_path) / filename)
             
-            print(f"开始下载任务 {index}/{downloadable_count}: {task_id} -> {filename}")
+            print(f"开始下载任务 {index}/{downloadable_count}: {task.get('task_id', 'unknown')} -> {filename}")
             
             # 创建并启动下载线程
             download_thread = VideoDownloadThread(video_url, save_path, api_key)
@@ -602,7 +603,7 @@ class TaskListWidget(QWidget):
 
         dialog.exec_()
 
-    def download_task_video(self, video_url):
+    def download_task_video(self, video_url, task=None):
         """下载任务视频"""
         if not video_url:
             InfoBar.warning(
@@ -624,9 +625,19 @@ class TaskListWidget(QWidget):
         # 确保目录存在
         Path(video_save_path).mkdir(parents=True, exist_ok=True)
         
-        # 生成文件名
+        # 生成文件名 - 使用提示词前20个字符（如果提供了任务信息）
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"sora_video_{timestamp}.mp4"
+        if task and 'prompt' in task:
+            # 使用提示词的前20个字符作为文件名的一部分，只保留字母和数字
+            prompt = task.get('prompt', '')
+            # 只保留字母和数字，去除其他符号和字符
+            clean_prompt = ''.join(c for c in prompt if c.isalnum()).strip()
+            # 取前20个字符，如果不足20个字符则使用全部
+            prompt_part = clean_prompt[:20] if clean_prompt else 'untitled'
+            filename = f"{prompt_part}_{timestamp}.mp4"
+        else:
+            # 如果没有任务信息，使用默认命名
+            filename = f"sora_video_{timestamp}.mp4"
         save_path = str(Path(video_save_path) / filename)
         
         # 获取API Key
@@ -817,3 +828,73 @@ class TaskListWidget(QWidget):
             parent_window = self.window()
             if parent_window and hasattr(parent_window, 'generate_video'):
                 parent_window.generate_video(task_data)
+    
+    def show_batch_add_task_dialog(self):
+        """显示批量添加任务对话框"""
+        try:
+            from components.batch_add_task_dialog import BatchAddTaskDialog
+            dialog = BatchAddTaskDialog(self.window())
+            if dialog.exec_() == QDialog.Accepted:
+                tasks_data = dialog.get_tasks_data()
+                if not tasks_data:
+                    InfoBar.warning(
+                        title='警告',
+                        content='没有有效的任务数据',
+                        orient=Qt.Horizontal,  # type: ignore
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+                    return
+                
+                # 批量创建任务
+                parent_window = self.window()
+                if parent_window and hasattr(parent_window, 'generate_video'):
+                    success_count = 0
+                    for task_info in tasks_data:
+                        # 构造任务数据
+                        task_data = {
+                            'prompt': task_info['prompt'],
+                            'model': 'sora-2',
+                            'aspect_ratio': task_info['resolution'],
+                            'duration': task_info['duration'],
+                            'images': []  # 批量添加只支持文生视频
+                        }
+                        
+                        # 调用主窗口的生成方法
+                        parent_window.generate_video(task_data)
+                        success_count += 1
+                        
+                    InfoBar.success(
+                        title='成功',
+                        content=f'已提交 {success_count} 个任务到队列',
+                        orient=Qt.Horizontal,  # type: ignore
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+                    
+                    # 刷新任务列表
+                    self.load_tasks()
+                else:
+                    InfoBar.error(
+                        title='错误',
+                        content='无法获取主窗口实例',
+                        orient=Qt.Horizontal,  # type: ignore
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=3000,
+                        parent=self
+                    )
+        except Exception as e:
+            InfoBar.error(
+                title='错误',
+                content=f'批量添加任务失败: {str(e)}',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )

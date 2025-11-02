@@ -4,15 +4,18 @@
 
 import sys
 from pathlib import Path
+import os
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFileDialog, QLabel
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFileDialog, QLabel, QFormLayout, QWidget
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 from qfluentwidgets import (
-    TitleLabel, TextEdit, PushButton, BodyLabel, CardWidget, InfoBar, InfoBarPosition, ProgressBar
+    TitleLabel, TextEdit, PushButton, BodyLabel, CardWidget, InfoBar, InfoBarPosition, ProgressBar,
+    ComboBox, RadioButton
 )
 
 from threads.video_analysis_thread import VideoAnalysisThread
 from database_manager import db_manager
+from utils.file_utils import format_file_size
 
 class DragDropVideoWidget(TextEdit):
     """支持拖拽的视频文件区域"""
@@ -93,9 +96,11 @@ class VideoCloneDialog(QDialog):
         super().__init__(parent)
         self.video_path = None
         self.analysis_thread = None
+        self.selected_duration = 10  # 默认10秒
+        self.selected_aspect_ratio = "16:9"  # 默认横屏
         self.setWindowTitle("视频克隆")
         self.setModal(True)
-        self.resize(500, 350)  # 增加高度以容纳加载状态
+        self.resize(500, 450)  # 增加高度以容纳新控件
         self.init_ui()
         
     def init_ui(self):
@@ -131,6 +136,38 @@ class VideoCloneDialog(QDialog):
         
         layout.addWidget(video_card)
         
+        # 参数设置区域
+        settings_card = CardWidget()
+        settings_layout = QFormLayout(settings_card)
+        settings_layout.setLabelAlignment(Qt.AlignRight)  # type: ignore
+        settings_layout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)  # type: ignore
+        
+        # 分辨率选择
+        self.resolution_combo = ComboBox()
+        self.resolution_combo.addItem("横屏 (16:9)", "16:9")
+        self.resolution_combo.addItem("竖屏 (9:16)", "9:16")
+        self.resolution_combo.setCurrentIndex(0)  # 默认横屏
+        settings_layout.addRow("分辨率:", self.resolution_combo)
+        
+        # 时长选择 - 单选框
+        self.duration_group = QWidget()
+        duration_layout = QHBoxLayout(self.duration_group)
+
+        self.duration_10 = RadioButton("10秒")
+        self.duration_10.setChecked(True)
+        self.duration_10.toggled.connect(lambda checked: self.set_duration(10) if checked else None)
+
+        self.duration_15 = RadioButton("15秒")
+        self.duration_15.toggled.connect(lambda checked: self.set_duration(15) if checked else None)
+
+        duration_layout.addWidget(self.duration_10)
+        duration_layout.addWidget(self.duration_15)
+        duration_layout.addStretch()
+
+        settings_layout.addRow("时长(秒):", self.duration_group)
+        
+        layout.addWidget(settings_card)
+        
         # 加载状态区域
         self.loading_widget = CardWidget()
         self.loading_widget.setVisible(False)  # 默认隐藏
@@ -162,6 +199,10 @@ class VideoCloneDialog(QDialog):
         
         layout.addLayout(button_layout)
         
+    def set_duration(self, duration):
+        """设置时长"""
+        self.selected_duration = duration
+
     def handle_dropped_files(self, file_paths):
         """处理拖拽的文件"""
         if not file_paths:
@@ -169,10 +210,47 @@ class VideoCloneDialog(QDialog):
             
         # 只处理第一个视频文件
         file_path = file_paths[0]
+        
+        # 检查文件大小
+        if not self.check_file_size(file_path):
+            return
+            
         self.video_path = file_path
-        self.drop_area.setText(f"已选择视频文件:\n{Path(file_path).name}\n\n路径: {file_path}")
+        file_size = os.path.getsize(file_path)
+        self.drop_area.setText(f"已选择视频文件:\n{Path(file_path).name}\n\n路径: {file_path}\n大小: {format_file_size(file_size)}")
         # 自动开始分析
         self.start_analysis()
+        
+    def check_file_size(self, file_path):
+        """检查视频文件大小"""
+        try:
+            file_size = os.path.getsize(file_path)
+            # 20MB = 20 * 1024 * 1024 bytes
+            max_size = 20 * 1024 * 1024
+            
+            if file_size > max_size:
+                InfoBar.error(
+                    title='文件过大',
+                    content=f'视频文件大小为 {format_file_size(file_size)}，超过20MB限制',
+                    orient=Qt.Horizontal,  # type: ignore
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+                return False
+            return True
+        except Exception as e:
+            InfoBar.error(
+                title='错误',
+                content=f'检查文件大小失败: {str(e)}',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return False
         
     def browse_video_file(self):
         """浏览选择视频文件"""
@@ -184,8 +262,13 @@ class VideoCloneDialog(QDialog):
         )
         
         if file_path:
+            # 检查文件大小
+            if not self.check_file_size(file_path):
+                return
+                
             self.video_path = file_path
-            self.drop_area.setText(f"已选择视频文件:\n{Path(file_path).name}\n\n路径: {file_path}")
+            file_size = os.path.getsize(file_path)
+            self.drop_area.setText(f"已选择视频文件:\n{Path(file_path).name}\n\n路径: {file_path}\n大小: {format_file_size(file_size)}")
             # 自动开始分析
             self.start_analysis()
             
@@ -218,6 +301,9 @@ class VideoCloneDialog(QDialog):
             )
             return
             
+        # 获取选择的参数
+        self.selected_aspect_ratio = self.resolution_combo.currentData()
+            
         # 显示加载状态
         self.show_loading_state()
             
@@ -237,6 +323,9 @@ class VideoCloneDialog(QDialog):
         self.browse_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
         self.drop_area.setReadOnly(True)
+        self.resolution_combo.setEnabled(False)
+        self.duration_10.setEnabled(False)
+        self.duration_15.setEnabled(False)
         
         # 显示加载组件
         self.loading_widget.setVisible(True)
@@ -248,6 +337,9 @@ class VideoCloneDialog(QDialog):
         self.browse_btn.setEnabled(True)
         self.cancel_btn.setEnabled(True)
         self.drop_area.setReadOnly(False)
+        self.resolution_combo.setEnabled(True)
+        self.duration_10.setEnabled(True)
+        self.duration_15.setEnabled(True)
         
         # 隐藏加载组件
         self.loading_widget.setVisible(False)
@@ -283,8 +375,8 @@ class VideoCloneDialog(QDialog):
                 parent=self
             )
             
-            # 分析完成之后自动关闭克隆弹窗
-            self.accept()  # 使用accept()关闭对话框
+            # 分析完成之后自动创建任务
+            self.create_task_from_analysis(result_text)
         else:
             InfoBar.warning(
                 title='提示',
@@ -295,6 +387,67 @@ class VideoCloneDialog(QDialog):
                 duration=2000,
                 parent=self
             )
+            
+    def create_task_from_analysis(self, analysis_result):
+        """根据分析结果创建任务"""
+        try:
+            # 获取主窗口实例
+            main_window = self.parent()
+            while main_window and not callable(getattr(main_window, 'generate_video', None)):
+                main_window = main_window.parent()
+                
+            if not main_window or not callable(getattr(main_window, 'generate_video', None)):
+                InfoBar.warning(
+                    title='提示',
+                    content='无法获取主窗口实例，无法自动创建任务',
+                    orient=Qt.Horizontal,  # type: ignore
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+                # 分析完成之后自动关闭克隆弹窗
+                self.accept()
+                return
+                
+            # 构建任务数据
+            task_data = {
+                'prompt': analysis_result,
+                'model': 'sora-2',
+                'aspect_ratio': self.selected_aspect_ratio,
+                'duration': self.selected_duration,
+                'images': []  # 视频克隆不使用图片
+            }
+            
+            # 调用主窗口的生成方法（使用getattr避免静态检查错误）
+            generate_video_func = getattr(main_window, 'generate_video')
+            generate_video_func(task_data)
+            
+            InfoBar.success(
+                title='任务创建',
+                content='已根据视频分析结果自动创建视频生成任务',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+            # 分析完成之后自动关闭克隆弹窗
+            self.accept()  # 使用accept()关闭对话框
+            
+        except Exception as e:
+            InfoBar.error(
+                title='错误',
+                content=f'创建任务失败: {str(e)}',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            # 即使创建任务失败，也关闭对话框
+            self.accept()
             
     def on_analysis_error(self, error_message):
         """分析错误回调"""

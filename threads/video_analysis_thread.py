@@ -11,6 +11,7 @@ from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 from loguru import logger
 from database_manager import db_manager
+from utils.file_utils import format_file_size
 
 class VideoAnalysisThread(QThread):
     """视频分析工作线程"""
@@ -26,6 +27,10 @@ class VideoAnalysisThread(QThread):
     def run(self):
         """执行视频分析"""
         try:
+            # 检查视频文件大小
+            if not self.check_file_size():
+                return
+                
             self.progress.emit("正在上传视频到阿里云OSS...")
             
             # 先上传视频到阿里云OSS
@@ -43,6 +48,25 @@ class VideoAnalysisThread(QThread):
             logger.error(error_msg)
             logger.exception(e)  # 记录完整的异常堆栈
             self.error.emit(error_msg)
+
+    def check_file_size(self):
+        """检查视频文件大小"""
+        try:
+            file_size = os.path.getsize(self.video_path)
+            # 20MB = 20 * 1024 * 1024 bytes
+            max_size = 20 * 1024 * 1024
+            
+            if file_size > max_size:
+                error_msg = f"视频文件大小为 {format_file_size(file_size)}，超过20MB限制"
+                logger.error(error_msg)
+                self.error.emit(error_msg)
+                return False
+            return True
+        except Exception as e:
+            error_msg = f"检查文件大小失败: {str(e)}"
+            logger.error(error_msg)
+            self.error.emit(error_msg)
+            return False
 
     def upload_video_to_oss(self):
         """上传视频到阿里云OSS"""
@@ -123,7 +147,7 @@ class VideoAnalysisThread(QThread):
                         "content": [
                             {
                                 "type": "text",
-                                "text": "帮我分析这个视频，严格按照时间轴分析每个场景，并且标明视频中的所在时间轴，每个场景的描述包括内容，旁白，人物对话，背景音乐等等，最终只需要给我视频分析结果，不需要客套话，不需要你的时间，只需要分析视频内容"
+                                "text": "帮我分析这个视频，严格按照视频中的时间轴分析每个场景，每个场景的描述包括内容，旁白，人物对话，背景音乐等等，最终只需要给我视频分析结果，不需要客套话，不需要你的时间，只需要分析视频内容"
                             },
                             {
                                 "type": "image_url",

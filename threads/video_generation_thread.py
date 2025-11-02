@@ -66,24 +66,24 @@ class VideoGenerationThread(QThread):
             self.task_created.emit(task_id, task_data)
 
             # 等待任务完成
-            final_result = client.wait_for_completion(
-                task_id=task_id,
-                max_wait_time=600,  # 10分钟
-                poll_interval=10    # 每10秒查询一次
-            )
+            # final_result = client.wait_for_completion(
+            #     task_id=task_id,
+            #     max_wait_time=600,  # 10分钟
+            #     poll_interval=10    # 每10秒查询一次
+            # )
 
-            status = final_result.get('status', '')
+            # status = final_result.get('status', '')
 
-            if status == 'completed':
-                video_url = final_result.get('video_url') or final_result.get('detail', {}).get('url', '')
-                if video_url:
-                    self.finished.emit(True, "视频生成成功", video_url, task_id)
-                else:
-                    self.finished.emit(False, "任务完成但没有返回视频URL", "", task_id)
-            else:
-                failure_reason = final_result.get('detail', {}).get('pending_info', {}).get('failure_reason', '未知错误')
-                error_msg = f"视频生成失败: {failure_reason}" if failure_reason else f"任务失败，状态: {status}"
-                self.finished.emit(False, error_msg, "", task_id)
+            # if status == 'completed':
+            #     video_url = final_result.get('video_url') or final_result.get('detail', {}).get('url', '')
+            #     if video_url:
+            #         self.finished.emit(True, "视频生成成功", video_url, task_id)
+            #     else:
+            #         self.finished.emit(False, "任务完成但没有返回视频URL", "", task_id)
+            # else:
+            #     failure_reason = final_result.get('detail', {}).get('pending_info', {}).get('failure_reason', '未知错误')
+            #     error_msg = f"视频生成失败: {failure_reason}" if failure_reason else f"任务失败，状态: {status}"
+            #     self.finished.emit(False, error_msg, "", task_id)
 
         except Exception as e:
             # 尝试从异常中解析错误信息

@@ -40,7 +40,7 @@ class SettingsInterface(QWidget):
         version_layout.addWidget(version_title)
 
         # 版本号
-        version_label = BodyLabel('版本: v2.0.0')
+        version_label = BodyLabel('版本: v2.2.0')
         version_label.setStyleSheet("color: #666; font-size: 13px;")
         version_layout.addWidget(version_label)
 
