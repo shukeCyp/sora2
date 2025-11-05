@@ -9,13 +9,13 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFileDialog, QLabel, QFormLayout, QWidget
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 from qfluentwidgets import (
-    TitleLabel, TextEdit, PushButton, BodyLabel, CardWidget, InfoBar, InfoBarPosition, ProgressBar,
-    ComboBox, RadioButton
+    TitleLabel, TextEdit, PushButton, BodyLabel, CardWidget, InfoBar, InfoBarPosition, ProgressBar
 )
 
 from threads.video_analysis_thread import VideoAnalysisThread
 from database_manager import db_manager
 from utils.file_utils import format_file_size
+from components.prompt_preview_dialog import PromptPreviewDialog
 
 class DragDropVideoWidget(TextEdit):
     """支持拖拽的视频文件区域"""
@@ -96,11 +96,9 @@ class VideoCloneDialog(QDialog):
         super().__init__(parent)
         self.video_path = None
         self.analysis_thread = None
-        self.selected_duration = 10  # 默认10秒
-        self.selected_aspect_ratio = "16:9"  # 默认横屏
         self.setWindowTitle("视频克隆")
         self.setModal(True)
-        self.resize(500, 450)  # 增加高度以容纳新控件
+        self.resize(500, 420)
         self.init_ui()
         
     def init_ui(self):
@@ -136,37 +134,7 @@ class VideoCloneDialog(QDialog):
         
         layout.addWidget(video_card)
         
-        # 参数设置区域
-        settings_card = CardWidget()
-        settings_layout = QFormLayout(settings_card)
-        settings_layout.setLabelAlignment(Qt.AlignRight)  # type: ignore
-        settings_layout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)  # type: ignore
-        
-        # 分辨率选择
-        self.resolution_combo = ComboBox()
-        self.resolution_combo.addItem("横屏 (16:9)", "16:9")
-        self.resolution_combo.addItem("竖屏 (9:16)", "9:16")
-        self.resolution_combo.setCurrentIndex(0)  # 默认横屏
-        settings_layout.addRow("分辨率:", self.resolution_combo)
-        
-        # 时长选择 - 单选框
-        self.duration_group = QWidget()
-        duration_layout = QHBoxLayout(self.duration_group)
-
-        self.duration_10 = RadioButton("10秒")
-        self.duration_10.setChecked(True)
-        self.duration_10.toggled.connect(lambda checked: self.set_duration(10) if checked else None)
-
-        self.duration_15 = RadioButton("15秒")
-        self.duration_15.toggled.connect(lambda checked: self.set_duration(15) if checked else None)
-
-        duration_layout.addWidget(self.duration_10)
-        duration_layout.addWidget(self.duration_15)
-        duration_layout.addStretch()
-
-        settings_layout.addRow("时长(秒):", self.duration_group)
-        
-        layout.addWidget(settings_card)
+        # 移除分辨率与时长选择（根据需求）
         
         # 加载状态区域
         self.loading_widget = CardWidget()
@@ -199,9 +167,7 @@ class VideoCloneDialog(QDialog):
         
         layout.addLayout(button_layout)
         
-    def set_duration(self, duration):
-        """设置时长"""
-        self.selected_duration = duration
+    # 移除时长设置方法
 
     def handle_dropped_files(self, file_paths):
         """处理拖拽的文件"""
@@ -301,8 +267,7 @@ class VideoCloneDialog(QDialog):
             )
             return
             
-        # 获取选择的参数
-        self.selected_aspect_ratio = self.resolution_combo.currentData()
+        # 移除分辨率选择逻辑
             
         # 显示加载状态
         self.show_loading_state()
@@ -323,9 +288,7 @@ class VideoCloneDialog(QDialog):
         self.browse_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
         self.drop_area.setReadOnly(True)
-        self.resolution_combo.setEnabled(False)
-        self.duration_10.setEnabled(False)
-        self.duration_15.setEnabled(False)
+        # 无分辨率/时长控件
         
         # 显示加载组件
         self.loading_widget.setVisible(True)
@@ -337,9 +300,7 @@ class VideoCloneDialog(QDialog):
         self.browse_btn.setEnabled(True)
         self.cancel_btn.setEnabled(True)
         self.drop_area.setReadOnly(False)
-        self.resolution_combo.setEnabled(True)
-        self.duration_10.setEnabled(True)
-        self.duration_15.setEnabled(True)
+        # 无分辨率/时长控件
         
         # 隐藏加载组件
         self.loading_widget.setVisible(False)
@@ -357,10 +318,18 @@ class VideoCloneDialog(QDialog):
         if isinstance(result, list):
             result_text = ""
             for item in result:
-                # 构建结果文本
+                # 构建按场景的详细文本（仅解析内容，无额外说明）
                 result_text += f"时间: {item.get('time', '')}\n"
-                result_text += f"视频内容: {item.get('content', '')}\n"
-                result_text += f"音频内容: {item.get('audio', '')}\n\n"
+                result_text += f"内容: {item.get('content', '')}\n"
+                if item.get('style'):
+                    result_text += f"风格: {item.get('style', '')}\n"
+                if item.get('narration'):
+                    result_text += f"旁白: {item.get('narration', '')}\n"
+                if item.get('dialogue'):
+                    result_text += f"人物对话: {item.get('dialogue', '')}\n"
+                if item.get('audio'):
+                    result_text += f"音频/音乐: {item.get('audio', '')}\n"
+                result_text += "\n"
                 
             # 复制到剪切板
             self.copy_to_clipboard(result_text)
@@ -375,8 +344,20 @@ class VideoCloneDialog(QDialog):
                 parent=self
             )
             
-            # 分析完成之后自动创建任务
-            self.create_task_from_analysis(result_text)
+            # 打开提示词预览对话框（不自动创建任务）
+            try:
+                preview = PromptPreviewDialog(result_text, self)
+                preview.exec_()
+            except Exception as e:
+                InfoBar.error(
+                    title='错误',
+                    content=f'打开预览失败: {str(e)}',
+                    orient=Qt.Horizontal,  # type: ignore
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
         else:
             InfoBar.warning(
                 title='提示',
@@ -388,66 +369,7 @@ class VideoCloneDialog(QDialog):
                 parent=self
             )
             
-    def create_task_from_analysis(self, analysis_result):
-        """根据分析结果创建任务"""
-        try:
-            # 获取主窗口实例
-            main_window = self.parent()
-            while main_window and not callable(getattr(main_window, 'generate_video', None)):
-                main_window = main_window.parent()
-                
-            if not main_window or not callable(getattr(main_window, 'generate_video', None)):
-                InfoBar.warning(
-                    title='提示',
-                    content='无法获取主窗口实例，无法自动创建任务',
-                    orient=Qt.Horizontal,  # type: ignore
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2000,
-                    parent=self
-                )
-                # 分析完成之后自动关闭克隆弹窗
-                self.accept()
-                return
-                
-            # 构建任务数据
-            task_data = {
-                'prompt': analysis_result,
-                'model': 'sora-2',
-                'aspect_ratio': self.selected_aspect_ratio,
-                'duration': self.selected_duration,
-                'images': []  # 视频克隆不使用图片
-            }
-            
-            # 调用主窗口的生成方法（使用getattr避免静态检查错误）
-            generate_video_func = getattr(main_window, 'generate_video')
-            generate_video_func(task_data)
-            
-            InfoBar.success(
-                title='任务创建',
-                content='已根据视频分析结果自动创建视频生成任务',
-                orient=Qt.Horizontal,  # type: ignore
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            
-            # 分析完成之后自动关闭克隆弹窗
-            self.accept()  # 使用accept()关闭对话框
-            
-        except Exception as e:
-            InfoBar.error(
-                title='错误',
-                content=f'创建任务失败: {str(e)}',
-                orient=Qt.Horizontal,  # type: ignore
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self
-            )
-            # 即使创建任务失败，也关闭对话框
-            self.accept()
+    # 取消自动任务创建逻辑，保留为预览展示
             
     def on_analysis_error(self, error_message):
         """分析错误回调"""

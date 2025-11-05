@@ -10,7 +10,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
 from PyQt5.QtGui import QMouseEvent
 from qfluentwidgets import (
-    TitleLabel, BodyLabel, LineEdit, PushButton, PrimaryPushButton, CardWidget
+    TitleLabel, BodyLabel, LineEdit, PushButton, PrimaryPushButton, CardWidget, CheckBox
 )
 
 from database_manager import db_manager
@@ -107,13 +107,7 @@ class SettingsInterface(QWidget):
         self.api_key_input.textChanged.connect(self.save_api_key)
         api_layout.addWidget(self.api_key_input)
 
-        # ComfyUI服务器地址
-        comfyui_label = BodyLabel('ComfyUI服务器:')
-        api_layout.addWidget(comfyui_label)
-        self.comfyui_server_input = LineEdit()
-        self.comfyui_server_input.setPlaceholderText('请输入ComfyUI服务器地址，例如: http://localhost:8188')
-        self.comfyui_server_input.textChanged.connect(self.save_comfyui_server)
-        api_layout.addWidget(self.comfyui_server_input)
+        # 已移除单一ComfyUI服务器配置，改用批量高清界面“服务器配置”管理
 
         # 视频保存路径
         video_path_label = BodyLabel('视频保存路径:')
@@ -127,6 +121,29 @@ class SettingsInterface(QWidget):
         self.browse_video_path_btn = PushButton("浏览")
         self.browse_video_path_btn.clicked.connect(self.browse_video_path)
         api_layout.addWidget(self.browse_video_path_btn)
+
+        # AI 标题设置
+        ai_title_label = BodyLabel('AI 标题:')
+        ai_title_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        api_layout.addWidget(ai_title_label)
+
+        # 开关
+        self.ai_title_checkbox = CheckBox()
+        self.ai_title_checkbox.setText('启用AI标题生成')
+        try:
+            # 使用stateChanged信号保存
+            self.ai_title_checkbox.stateChanged.connect(self.save_ai_title_enabled)
+        except Exception:
+            pass
+        api_layout.addWidget(self.ai_title_checkbox)
+
+        # 提示词输入
+        ai_prompt_label = BodyLabel('AI 标题提示词:')
+        api_layout.addWidget(ai_prompt_label)
+        self.ai_title_prompt_input = LineEdit()
+        self.ai_title_prompt_input.setPlaceholderText('请输入用于生成标题的提示词')
+        self.ai_title_prompt_input.textChanged.connect(self.save_ai_title_prompt)
+        api_layout.addWidget(self.ai_title_prompt_input)
 
         # 保存按钮
         self.save_settings_btn = PrimaryPushButton('保存设置')
@@ -180,22 +197,27 @@ class SettingsInterface(QWidget):
         api_key = db_manager.load_config('api_key', '')
         self.api_key_input.setText(api_key)
 
-        # 加载ComfyUI服务器地址
-        comfyui_server = db_manager.load_config('comfyui_server', '')
-        self.comfyui_server_input.setText(comfyui_server)
+        # ComfyUI服务器地址不再在此配置
 
         # 加载视频保存路径
         video_path = db_manager.load_config('video_save_path', '')
         self.video_path_input.setText(video_path)
+
+        # 加载AI标题设置
+        ai_enabled = db_manager.load_config('ai_title_enabled', False)
+        try:
+            self.ai_title_checkbox.setChecked(bool(ai_enabled))
+        except Exception:
+            pass
+        ai_prompt = db_manager.load_config('ai_title_prompt', '只返回一个中文视频标题，不要返回任何解释或额外内容；不使用引号、编号、前后缀；不换行；不超过30字，风格有趣吸引人')
+        self.ai_title_prompt_input.setText(ai_prompt)
 
     def save_settings(self):
         """保存设置"""
         api_key = self.api_key_input.text().strip()
         db_manager.save_config('api_key', api_key, 'string', 'Sora API Key')
         
-        # 保存ComfyUI服务器地址
-        comfyui_server = self.comfyui_server_input.text().strip()
-        db_manager.save_config('comfyui_server', comfyui_server, 'string', 'ComfyUI服务器地址')
+        # 不再保存ComfyUI服务器地址
         
         from qfluentwidgets import InfoBar, InfoBarPosition
         InfoBar.success(
@@ -213,15 +235,24 @@ class SettingsInterface(QWidget):
         api_key = self.api_key_input.text().strip()
         db_manager.save_config('api_key', api_key, 'string', 'Sora API Key')
 
-    def save_comfyui_server(self):
-        """实时保存ComfyUI服务器地址"""
-        comfyui_server = self.comfyui_server_input.text().strip()
-        db_manager.save_config('comfyui_server', comfyui_server, 'string', 'ComfyUI服务器地址')
+    # 已移除实时保存ComfyUI服务器方法
 
     def save_video_path(self):
         """实时保存视频保存路径"""
         video_path = self.video_path_input.text().strip()
         db_manager.save_config('video_save_path', video_path, 'string', '视频保存路径')
+
+    def save_ai_title_enabled(self, state: int):
+        """保存AI标题开关"""
+        enabled = bool(state)
+        db_manager.save_config('ai_title_enabled', enabled, 'boolean', 'AI标题开关')
+
+    def save_ai_title_prompt(self):
+        """保存AI标题提示词"""
+        prompt = self.ai_title_prompt_input.text().strip()
+        if not prompt:
+            prompt = '请根据我的提示词帮我生成一个爆款的视频标题，要搞怪一点，不要太死板，搞得有趣一点'
+        db_manager.save_config('ai_title_prompt', prompt, 'string', 'AI标题提示词')
 
     def browse_video_path(self):
         """浏览选择视频保存路径"""

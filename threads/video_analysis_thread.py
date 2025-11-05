@@ -7,6 +7,7 @@ import requests
 import json
 import os
 import uuid
+import re
 from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 from loguru import logger
@@ -147,7 +148,15 @@ class VideoAnalysisThread(QThread):
                         "content": [
                             {
                                 "type": "text",
-                                "text": "帮我分析这个视频，严格按照视频中的时间轴分析每个场景，每个场景的描述包括内容，旁白，人物对话，背景音乐等等，最终只需要给我视频分析结果，不需要客套话，不需要你的时间，只需要分析视频内容"
+                                "text": (
+                                    "请分析该视频并按时间轴拆分为若干场景。" \
+                                    "每个场景请严格给出以下字段，使用简体中文：" \
+                                    "time(时间或时间段)、content(内容)、style(风格)、narration(旁白)、dialogue(人物对话)、audio(音频/音乐)。" \
+                                    "仅以JSON数组返回，不要任何额外说明或客套话。示例：" \
+                                    "[{" \
+                                    "\"time\": \"00:00-00:05\", \"content\": \"镜头掠过城市夜景\", \"style\": \"冷色调、快剪\", " \
+                                    "\"narration\": \"开场解说\", \"dialogue\": \"\", \"audio\": \"低沉电子乐\"}]"
+                                )
                             },
                             {
                                 "type": "image_url",
@@ -221,10 +230,53 @@ class VideoAnalysisThread(QThread):
                 logger.warning("消息内容为空")
                 return []
             
-            # 简单解析内容，按行分割
+            # 优先尝试按JSON解析
+            json_text = content.strip()
+            # 去除代码块围栏
+            if '```' in json_text:
+                fences = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", json_text)
+                if fences:
+                    json_text = fences[0].strip()
+            # 截取可能的JSON片段
+            start_idx_candidates = [idx for idx in (json_text.find('['), json_text.find('{')) if idx != -1]
+            if start_idx_candidates:
+                start_idx = min(start_idx_candidates)
+                end_idx = max(json_text.rfind(']'), json_text.rfind('}'))
+                if end_idx > start_idx:
+                    json_text = json_text[start_idx:end_idx+1]
+            try:
+                data = json.loads(json_text)
+                scenes = data.get('scenes', data) if isinstance(data, dict) else data
+                if isinstance(scenes, list):
+                    normalized = []
+                    for s in scenes:
+                        if not isinstance(s, dict):
+                            continue
+                        time_val = s.get('time') or s.get('time_range')
+                        if not time_val:
+                            start = s.get('start', '')
+                            end = s.get('end', '')
+                            time_val = f"{start}-{end}".strip('-')
+                        item = {
+                            'time': time_val or '',
+                            'content': s.get('content') or s.get('description') or '',
+                            'style': s.get('style') or '',
+                            'narration': s.get('narration') or s.get('voice_over') or '',
+                            'dialogue': s.get('dialogue') or s.get('character_dialogue') or '',
+                            'audio': s.get('audio') or s.get('music_audio') or s.get('bgm') or ''
+                        }
+                        normalized.append(item)
+                        logger.debug(f"解析场景 {len(normalized)}: {item}")
+                    if normalized:
+                        logger.info(f"JSON解析完成，共{len(normalized)}个场景")
+                        return normalized
+            except Exception as e:
+                logger.debug(f"JSON解析失败，回退到行解析: {e}")
+
+            # 回退：简单解析内容，按行分割
             lines = content.strip().split('\n')
             logger.info(f"内容解析完成，共{len(lines)}行")
-            
+
             result = []
             i = 0
             while i < len(lines):
@@ -232,18 +284,20 @@ class VideoAnalysisThread(QThread):
                 if not lines[i].strip():
                     i += 1
                     continue
-                
                 # 简单解析，假设每3行是一个时间段的信息
                 if i + 2 < len(lines):
                     item = {
                         'time': f"00:00:{i//3*5:02d}",  # 简单的时间戳
                         'content': lines[i].strip() if lines[i].strip() else "视频内容",
+                        'style': '',
+                        'narration': '',
+                        'dialogue': '',
                         'audio': lines[i+1].strip() if i+1 < len(lines) and lines[i+1].strip() else "音频内容"
                     }
                     result.append(item)
                     logger.debug(f"解析时间段 {len(result)}: {item}")
                 i += 3
-            
+
             logger.info(f"解析完成，共{len(result)}个时间段")
             return result
             

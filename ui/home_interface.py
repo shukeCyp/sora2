@@ -4,7 +4,7 @@
 
 from pathlib import Path
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFileDialog
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFileDialog, QDialog
 from qfluentwidgets import (
     TitleLabel, TextEdit, PushButton, PrimaryPushButton, RadioButton, BodyLabel, FluentIcon
 )
@@ -119,6 +119,12 @@ class HomeInterface(QWidget):
         settings_layout.addLayout(duration_layout)
 
         layout.addWidget(settings_group)
+
+        # 批量添加按钮（位于生成视频按钮上方）
+        self.batch_add_btn = PushButton('批量添加')
+        self.batch_add_btn.clicked.connect(self.show_image_batch_add_dialog)
+        self.batch_add_btn.setFixedHeight(36)
+        layout.addWidget(self.batch_add_btn)
 
         # 生成按钮
         self.add_task_btn = PrimaryPushButton(FluentIcon.PLAY, '生成视频')
@@ -282,7 +288,55 @@ class HomeInterface(QWidget):
         # 调用父窗口的生成方法
         if self._parent:
             self._parent.generate_video(task_data)
-
+        
         # 清空输入
         self.prompt_input.clear()
         self.clear_images()
+
+    def show_image_batch_add_dialog(self):
+        """显示拖拽图片的批量添加对话框"""
+        try:
+            from components.image_batch_add_dialog import ImageBatchAddDialog
+            # 根据当前选择设置默认值
+            default_prompt = self.prompt_input.toPlainText().strip()
+            default_resolution = '9:16' if self.selected_orientation == 'portrait' else '16:9'
+            default_duration = self.selected_duration
+
+            dialog = ImageBatchAddDialog(self.window(), default_prompt, default_resolution, default_duration)
+            if dialog.exec_() == QDialog.Accepted:
+                tasks = dialog.get_tasks_data()
+                if not tasks:
+                    from qfluentwidgets import InfoBar, InfoBarPosition
+                    InfoBar.warning(
+                        title='提示',
+                        content='没有可创建的任务（请拖拽图片且上传成功）',
+                        orient=Qt.Horizontal,  # type: ignore
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+                    return
+
+                parent_window = self._parent
+                if parent_window and hasattr(parent_window, 'generate_video'):
+                    for t in tasks:
+                        task_data = {
+                            'prompt': t.get('prompt', ''),
+                            'model': 'sora-2',
+                            'aspect_ratio': t.get('resolution', default_resolution),
+                            'duration': t.get('duration', default_duration),
+                            'images': t.get('images', [])
+                        }
+                        parent_window.generate_video(task_data)
+        except Exception as e:
+            from qfluentwidgets import InfoBar, InfoBarPosition
+            InfoBar.error(
+                title='错误',
+                content=f'打开批量添加对话框失败: {str(e)}',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )

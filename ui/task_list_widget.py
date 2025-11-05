@@ -497,7 +497,7 @@ class TaskListWidget(QWidget):
             print(f"开始下载任务 {index}/{downloadable_count}: {task.get('task_id', 'unknown')} -> {filename}")
             
             # 创建并启动下载线程
-            download_thread = VideoDownloadThread(video_url, save_path, api_key)
+            download_thread = VideoDownloadThread(video_url, save_path, api_key, prompt)
             download_thread.finished.connect(self.on_batch_download_item_finished)
             download_thread.start()
             
@@ -644,7 +644,7 @@ class TaskListWidget(QWidget):
         api_key = db_manager.load_config('api_key', '')
         
         # 创建下载线程
-        self.download_thread = VideoDownloadThread(video_url, save_path, api_key)
+        self.download_thread = VideoDownloadThread(video_url, save_path, api_key, (task.get('prompt', '') if task else None))
         self.download_thread.progress.connect(self.on_download_progress_table)
         self.download_thread.finished.connect(self.on_download_finished_table)
         self.download_thread.start()
@@ -830,16 +830,16 @@ class TaskListWidget(QWidget):
                 parent_window.generate_video(task_data)
     
     def show_batch_add_task_dialog(self):
-        """显示批量添加任务对话框"""
+        """显示批量添加任务对话框（拖拽图片生成记录）"""
         try:
-            from components.batch_add_task_dialog import BatchAddTaskDialog
-            dialog = BatchAddTaskDialog(self.window())
+            from components.image_batch_add_dialog import ImageBatchAddDialog
+            dialog = ImageBatchAddDialog(self.window())
             if dialog.exec_() == QDialog.Accepted:
                 tasks_data = dialog.get_tasks_data()
                 if not tasks_data:
                     InfoBar.warning(
                         title='警告',
-                        content='没有有效的任务数据',
+                        content='没有有效的任务数据（请拖拽图片并上传成功）',
                         orient=Qt.Horizontal,  # type: ignore
                         isClosable=True,
                         position=InfoBarPosition.TOP,
@@ -853,13 +853,13 @@ class TaskListWidget(QWidget):
                 if parent_window and hasattr(parent_window, 'generate_video'):
                     success_count = 0
                     for task_info in tasks_data:
-                        # 构造任务数据
+                        # 构造任务数据（包含图片）
                         task_data = {
-                            'prompt': task_info['prompt'],
+                            'prompt': task_info.get('prompt', ''),
                             'model': 'sora-2',
-                            'aspect_ratio': task_info['resolution'],
-                            'duration': task_info['duration'],
-                            'images': []  # 批量添加只支持文生视频
+                            'aspect_ratio': task_info.get('resolution', '16:9'),
+                            'duration': task_info.get('duration', 10),
+                            'images': task_info.get('images', [])
                         }
                         
                         # 调用主窗口的生成方法

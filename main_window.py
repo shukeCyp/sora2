@@ -42,6 +42,7 @@ from database_manager import db_manager, model_manager
 from ui.home_interface import HomeInterface
 from ui.settings_interface import SettingsInterface
 from ui.upscale_interface import UpscaleInterface
+from ui.batch_clone_interface import BatchCloneInterface
 from ui.task_list_widget import TaskListWidget
 
 # 导入拆分的对话框组件
@@ -113,9 +114,11 @@ class MainWindow(FluentWindow):
         self.task_interface = TaskListWidget(self)
         self.upscale_interface = UpscaleInterface(self)
         self.settings_interface = SettingsInterface(self)
+        self.batch_clone_interface = BatchCloneInterface(self)
 
         # 添加到导航界面
         self.addSubInterface(self.task_interface, FluentIcon.ROBOT, '任务列表')
+        self.addSubInterface(self.batch_clone_interface, FluentIcon.COPY, '批量克隆')
         self.addSubInterface(self.upscale_interface, FluentIcon.ZOOM, '高清放大')
         self.addSubInterface(self.settings_interface, FluentIcon.SETTING, '设置')
 

@@ -181,6 +181,8 @@ class DatabaseManager:
         self.create_config_table()
         self.create_tasks_table()
         self.create_chat_tasks_table()
+        # 创建高清放大服务器表
+        self.create_upscale_servers_table()
 
     def init_db(self):
         """公开的初始化数据库方法"""
@@ -281,6 +283,9 @@ class DatabaseManager:
                 ('auto_download', 'true', 'boolean', '自动下载视频'),
                 ('video_save_path', '', 'string', '视频保存路径'),
                 ('theme', 'auto', 'string', '主题设置(light/dark/auto)'),
+                # AI 标题相关默认配置
+                ('ai_title_enabled', 'false', 'boolean', 'AI标题开关'),
+                ('ai_title_prompt', '只返回一个中文视频标题，不要返回任何解释或额外内容；不使用引号、编号、前后缀；不换行；不超过30字，风格有趣吸引人', 'string', 'AI标题提示词'),
             ]
 
             for key, value, type_, desc in default_configs:
@@ -364,6 +369,147 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"创建chat_tasks表失败: {e}")
             return False
+
+    def create_upscale_servers_table(self) -> bool:
+        """创建高清放大服务器表"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS upscale_servers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    enabled INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # 为url建立唯一索引，避免重复配置同一地址
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_upscale_servers_url ON upscale_servers(url)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_upscale_servers_enabled ON upscale_servers(enabled)')
+
+            conn.commit()
+            conn.close()
+            logger.info("upscale_servers表创建成功")
+            return True
+        except Exception as e:
+            logger.error(f"创建upscale_servers表失败: {e}")
+            return False
+
+    def get_upscale_servers(self, enabled_only: bool = False) -> List[Dict[str, Any]]:
+        """获取高清放大服务器列表"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            if enabled_only:
+                cursor.execute('''
+                    SELECT id, name, url, enabled, created_at, updated_at
+                    FROM upscale_servers
+                    WHERE enabled = 1
+                    ORDER BY id ASC
+                ''')
+            else:
+                cursor.execute('''
+                    SELECT id, name, url, enabled, created_at, updated_at
+                    FROM upscale_servers
+                    ORDER BY id ASC
+                ''')
+
+            servers = []
+            for row in cursor.fetchall():
+                servers.append({
+                    'id': row[0],
+                    'name': row[1],
+                    'url': row[2],
+                    'enabled': bool(row[3]),
+                    'created_at': row[4],
+                    'updated_at': row[5]
+                })
+
+            conn.close()
+            return servers
+        except Exception as e:
+            logger.error(f"获取upscale服务器列表失败: {e}")
+            return []
+
+    def add_upscale_server(self, name: str, url: str, enabled: bool = True) -> bool:
+        """添加高清放大服务器"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                INSERT OR IGNORE INTO upscale_servers (name, url, enabled)
+                VALUES (?, ?, ?)
+            ''', (name, url, 1 if enabled else 0))
+
+            conn.commit()
+            conn.close()
+            logger.info(f"添加高清放大服务器: {name} -> {url}")
+            return True
+        except Exception as e:
+            logger.error(f"添加upscale服务器失败: {e}")
+            return False
+
+    def update_upscale_server(self, server_id: int, name: Optional[str] = None, url: Optional[str] = None, enabled: Optional[bool] = None) -> bool:
+        """更新高清放大服务器"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            set_clauses = []
+            values: List[Any] = []
+
+            if name is not None:
+                set_clauses.append("name = ?")
+                values.append(name)
+            if url is not None:
+                set_clauses.append("url = ?")
+                values.append(url)
+            if enabled is not None:
+                set_clauses.append("enabled = ?")
+                values.append(1 if enabled else 0)
+
+            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+            values.append(server_id)
+
+            if not set_clauses:
+                conn.close()
+                return True
+
+            cursor.execute(f'''
+                UPDATE upscale_servers
+                SET {", ".join(set_clauses)}
+                WHERE id = ?
+            ''', values)
+
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"更新upscale服务器失败: {e}")
+            return False
+
+    def delete_upscale_server(self, server_id: int) -> bool:
+        """删除高清放大服务器"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM upscale_servers WHERE id = ?', (server_id,))
+            conn.commit()
+            conn.close()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"删除upscale服务器失败: {e}")
+            return False
+
+    def get_enabled_upscale_servers(self) -> List[Dict[str, Any]]:
+        """获取已启用的高清放大服务器列表"""
+        return self.get_upscale_servers(enabled_only=True)
 
     def save_config(self, key: str, value: Any, type_: str = 'string', description: Optional[str] = None) -> bool:
         """保存配置到config表"""

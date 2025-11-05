@@ -10,6 +10,7 @@ from qfluentwidgets import (
 )
 
 from components.upscale_settings_dialog import UpscaleSettingsDialog
+from components.upscale_servers_dialog import UpscaleServersDialog
 from threads.video_upscale_thread import VideoUpscaleThread
 from database_manager import db_manager
 
@@ -25,7 +26,11 @@ class UpscaleInterface(QWidget):
         self.current_index = 0  # 当前处理的视频索引
         self.mode = 'tiny'  # 默认模式改为tiny
         self.scale = 2  # 默认放大系数
-        self.comfyui_server = ''  # ComfyUI服务器地址
+        # 并发调度相关
+        self.pending_indices = []
+        self.running_workers = 0
+        self.active_threads = []
+        self.enabled_servers = []
         self.init_ui()
 
     def init_ui(self):
@@ -45,6 +50,11 @@ class UpscaleInterface(QWidget):
         self.settings_btn = PushButton('设置')
         self.settings_btn.clicked.connect(self.show_upscale_settings)
         control_layout.addWidget(self.settings_btn)
+        
+        # 服务器配置按钮
+        self.server_btn = PushButton('服务器配置')
+        self.server_btn.clicked.connect(self.show_server_config)
+        control_layout.addWidget(self.server_btn)
         
         # 开始处理按钮
         self.process_btn = PrimaryPushButton('开始处理')
@@ -207,6 +217,21 @@ class UpscaleInterface(QWidget):
                 parent=self
             )
 
+    def show_server_config(self):
+        """显示高清放大服务器配置对话框"""
+        dialog = UpscaleServersDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            from qfluentwidgets import InfoBar, InfoBarPosition
+            InfoBar.success(
+                title='成功',
+                content='服务器配置已保存',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+
     def start_processing(self):
         """开始处理视频"""
         if not self.video_files:
@@ -225,13 +250,13 @@ class UpscaleInterface(QWidget):
         # 获取设置
         self.mode = db_manager.load_config('upscale_mode', 'tiny')  # 默认tiny
         self.scale = db_manager.load_config('upscale_scale', 2)
-        self.comfyui_server = db_manager.load_config('comfyui_server', '')
-        
-        if not self.comfyui_server:
+        # 获取启用的服务器列表
+        self.enabled_servers = db_manager.get_upscale_servers(enabled_only=True)
+        if not self.enabled_servers:
             from qfluentwidgets import InfoBar, InfoBarPosition
             InfoBar.error(
                 title='错误',
-                content='请先在设置中配置ComfyUI服务器地址',
+                content='请先在“服务器配置”中添加并启用至少一个服务器',
                 orient=Qt.Horizontal,  # type: ignore
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -257,6 +282,7 @@ class UpscaleInterface(QWidget):
             # 更新按钮状态
             self.import_btn.setEnabled(False)
             self.settings_btn.setEnabled(False)
+            self.server_btn.setEnabled(False)
             self.process_btn.setEnabled(False)
             self.process_btn.setText('处理中...')
             self.stop_btn.setEnabled(True)
@@ -267,9 +293,17 @@ class UpscaleInterface(QWidget):
                 if status_item:
                     status_item.setText("待处理")
             
-            # 开始处理第一个视频
-            self.current_index = 0
-            self.process_next_video()
+            # 初始化任务队列并启动并发处理
+            self.pending_indices = list(range(len(self.video_files)))
+            self.active_threads = []
+            self.running_workers = 0
+
+            # 根据启用的服务器并发启动任务
+            for server in self.enabled_servers:
+                if not self.pending_indices:
+                    break
+                self.start_next_for_server(server['url'])
+                self.running_workers += 1
 
     def stop_processing(self):
         """停止处理"""
@@ -287,14 +321,19 @@ class UpscaleInterface(QWidget):
             if dialog.exec():
                 self.is_processing = False
                 
-                # 如果有正在运行的线程，尝试停止它
-                if self.current_thread and self.current_thread.isRunning():
-                    self.current_thread.terminate()
-                    self.current_thread.wait()
+                # 停止所有正在运行的线程
+                try:
+                    for t in list(self.active_threads):
+                        if t.isRunning():
+                            t.terminate()
+                            t.wait()
+                except Exception:
+                    pass
                 
                 # 更新按钮状态
                 self.import_btn.setEnabled(True)
                 self.settings_btn.setEnabled(True)
+                self.server_btn.setEnabled(True)
                 self.process_btn.setEnabled(True)
                 self.process_btn.setText('开始处理')
                 self.stop_btn.setEnabled(False)
@@ -313,37 +352,34 @@ class UpscaleInterface(QWidget):
                     parent=self
                 )
 
-    def process_next_video(self):
-        """处理下一个视频"""
-        # 检查是否应该继续处理
-        if not self.is_processing or self.current_index >= len(self.video_files):
-            # 所有视频处理完成或已停止
-            self.finish_processing()
+    def start_next_for_server(self, server_url: str):
+        """为指定服务器启动下一个任务"""
+        if not self.is_processing or not self.pending_indices:
             return
-            
-        # 更新状态标签
-        self.status_label.setText(f"正在处理: {Path(self.video_files[self.current_index]).name}")
-        
-        # 更新表格状态
-        status_item = self.video_table.item(self.current_index, 1)
+
+        index = self.pending_indices.pop(0)
+        input_path = Path(self.video_files[index])
+        # 默认命名（高清放大不使用AI标题）
+        output_path = input_path.parent / f"{input_path.stem}-hd{input_path.suffix}"
+
+        # 更新状态标签与表格
+        self.status_label.setText(f"正在处理: {input_path.name}")
+        status_item = self.video_table.item(index, 1)
         if status_item:
             status_item.setText("处理中")
-        
-        # 计算输出路径
-        input_path = Path(self.video_files[self.current_index])
-        output_path = input_path.parent / f"{input_path.stem}-hd{input_path.suffix}"
-        
-        # 创建处理线程
-        self.current_thread = VideoUpscaleThread(
+
+        # 创建并启动线程
+        t = VideoUpscaleThread(
             str(input_path),
             str(output_path),
             self.mode,
             self.scale,
-            self.comfyui_server
+            server_url
         )
-        self.current_thread.progress.connect(self.on_processing_progress)
-        self.current_thread.finished.connect(self.on_video_processed)
-        self.current_thread.start()
+        t.progress.connect(lambda message, idx=index: self.on_worker_progress(idx, message))
+        t.finished.connect(lambda success, message, out, idx=index, srv=server_url, thread=t: self.on_worker_finished(idx, srv, success, message, out, thread))
+        self.active_threads.append(t)
+        t.start()
 
     def finish_processing(self):
         """完成处理"""
@@ -352,6 +388,7 @@ class UpscaleInterface(QWidget):
         # 更新按钮状态
         self.import_btn.setEnabled(True)
         self.settings_btn.setEnabled(True)
+        self.server_btn.setEnabled(True)
         self.process_btn.setEnabled(True)
         self.process_btn.setText('开始处理')
         self.stop_btn.setEnabled(False)
@@ -379,14 +416,14 @@ class UpscaleInterface(QWidget):
         else:
             self.status_label.setText("处理已停止")
 
-    def on_processing_progress(self, message):
+    def on_worker_progress(self, row_index: int, message: str):
         """处理进度更新"""
         self.status_label.setText(message)
 
-    def on_video_processed(self, success, message, output_path):
-        """视频处理完成回调"""
+    def on_worker_finished(self, row_index: int, server_url: str, success: bool, message: str, output_path: str, thread: VideoUpscaleThread):
+        """并发线程完成回调"""
         # 更新表格状态
-        status_item = self.video_table.item(self.current_index, 1)
+        status_item = self.video_table.item(row_index, 1)
         if status_item:
             if success:
                 status_item.setText("已完成")
@@ -395,14 +432,26 @@ class UpscaleInterface(QWidget):
                 from qfluentwidgets import InfoBar, InfoBarPosition
                 InfoBar.error(
                     title='处理失败',
-                    content=f'{Path(self.video_files[self.current_index]).name}: {message}',
+                    content=f'{Path(self.video_files[row_index]).name}: {message}',
                     orient=Qt.Horizontal,  # type: ignore
                     isClosable=True,
                     position=InfoBarPosition.TOP,
                     duration=3000,
                     parent=self
                 )
-        
-        # 处理下一个视频
-        self.current_index += 1
-        self.process_next_video()
+
+        # 清理线程引用
+        try:
+            if thread in self.active_threads:
+                self.active_threads.remove(thread)
+        except Exception:
+            pass
+
+        # 为该服务器继续启动下一项任务或结束处理
+        if self.is_processing and self.pending_indices:
+            self.start_next_for_server(server_url)
+        else:
+            # 该服务器不再有任务，减少活跃工作者计数
+            self.running_workers = max(0, self.running_workers - 1)
+            if self.running_workers == 0:
+                self.finish_processing()
