@@ -44,6 +44,7 @@ from ui.settings_interface import SettingsInterface
 from ui.upscale_interface import UpscaleInterface
 from ui.batch_clone_interface import BatchCloneInterface
 from ui.task_list_widget import TaskListWidget
+from ui.goods_interface import GoodsInterface
 
 # 导入拆分的对话框组件
 from components.add_task_dialog import AddTaskDialog
@@ -115,11 +116,13 @@ class MainWindow(FluentWindow):
         self.upscale_interface = UpscaleInterface(self)
         self.settings_interface = SettingsInterface(self)
         self.batch_clone_interface = BatchCloneInterface(self)
+        self.goods_interface = GoodsInterface(self)
 
         # 添加到导航界面
         self.addSubInterface(self.task_interface, FluentIcon.ROBOT, '任务列表')
         self.addSubInterface(self.batch_clone_interface, FluentIcon.COPY, '批量克隆')
         self.addSubInterface(self.upscale_interface, FluentIcon.ZOOM, '高清放大')
+        self.addSubInterface(self.goods_interface, FluentIcon.VIEW, '带货')
         self.addSubInterface(self.settings_interface, FluentIcon.SETTING, '设置')
 
         self.navigationInterface.setCurrentItem(self.task_interface.objectName())

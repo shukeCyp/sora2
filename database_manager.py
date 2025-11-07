@@ -128,7 +128,7 @@ class DatabaseManager:
 
             logger.info(f"现有数据表: {existing_tables}")
 
-            # 需要创建的表
+            # 需要创建的表（已移除 goods_videos）
             required_tables = ['config', 'tasks']
 
             # 检查每个表是否存在
@@ -183,6 +183,16 @@ class DatabaseManager:
         self.create_chat_tasks_table()
         # 创建高清放大服务器表
         self.create_upscale_servers_table()
+        # 删除已废弃的带货视频表（如果存在）
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('DROP TABLE IF EXISTS goods_videos')
+            conn.commit()
+            conn.close()
+            logger.info("已删除废弃的 goods_videos 表（如存在）")
+        except Exception as e:
+            logger.warning(f"尝试删除 goods_videos 表失败: {e}")
 
     def init_db(self):
         """公开的初始化数据库方法"""
@@ -286,6 +296,9 @@ class DatabaseManager:
                 # AI 标题相关默认配置
                 ('ai_title_enabled', 'false', 'boolean', 'AI标题开关'),
                 ('ai_title_prompt', '只返回一个中文视频标题，不要返回任何解释或额外内容；不使用引号、编号、前后缀；不换行；不超过30字，风格有趣吸引人', 'string', 'AI标题提示词'),
+                # 提示词设置默认值
+                ('main_image_prompt', '根据提供的商品主图生成标准电商白底图：\n- 背景：纯白(#FFFFFF)，干净无纹理；\n- 主体：保持原始外观与质感，不改变颜色与结构；\n- 抠图：边缘干净无锯齿，无残留背景；\n- 光线：均匀柔和，无明显阴影或色偏；\n- 构图：产品居中，适度留白，画面整洁；\n- 分辨率：至少 2048×2048；\n- 输出：PNG(透明背景)或JPEG(白底)，适合电商展示。', 'string', '主图处理提示词(白底图生成)'),
+                ('scene_generation_prompt', '请基于白底图与商品标题生成一个 15 秒的产品介绍视频脚本与镜头计划。要求：\n1) 产品简短描述与核心卖点(中文)。\n2) 旁白文案(中文、自然口语，节奏紧凑)。\n3) 背景音乐风格：轻快现代，音量不压旁白。\n4) 运镜设计：推进/摇移/环绕等，流畅自然。\n5) 时间轴划分为 2–3 个镜头，每个镜头标注【时长/画面内容/镜头运动/旁白/字幕】。\n6) 画面以白底图为核心，可加入品牌色点缀。\n7) 结尾包含行动号召(如“立即了解/购买”)。\n总时长严格控制在 15 秒。\n请按如下格式输出：\nShot 1（0–5s）：画面内容…｜镜头运动…｜旁白…｜字幕…\nShot 2（5–10s）：…\nShot 3（10–15s）：…', 'string', '场景生成提示词(15秒产品介绍)')
             ]
 
             for key, value, type_, desc in default_configs:
@@ -398,6 +411,147 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"创建upscale_servers表失败: {e}")
             return False
+
+    def create_goods_videos_table(self) -> bool:
+        """创建带货视频表"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS goods_videos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    main_image TEXT,
+                    white_image TEXT,
+                    prompt TEXT,
+                    task_id INTEGER, -- 关联tasks表的ID，可空
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+                )
+            ''')
+
+            # 索引：按创建时间与任务ID查询方便
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_goods_videos_created_at ON goods_videos(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_goods_videos_task_id ON goods_videos(task_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_goods_videos_title ON goods_videos(title)')
+
+            conn.commit()
+            conn.close()
+            logger.info("goods_videos表创建成功")
+            return True
+        except Exception as e:
+            logger.error(f"创建goods_videos表失败: {e}")
+            return False
+
+    # === 带货视频 CRUD 方法 ===
+    def add_goods_video(self, title: str, main_image: str = None, white_image: str = None,
+                        prompt: str = None, task_id: Optional[int] = None) -> Optional[int]:
+        """新增一条带货视频记录，返回插入的ID"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO goods_videos (title, main_image, white_image, prompt, task_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ''', (title, main_image, white_image, prompt, task_id))
+            conn.commit()
+            new_id = cursor.lastrowid
+            conn.close()
+            logger.info(f"新增 goods_videos 记录: id={new_id}, title={title}")
+            return int(new_id)
+        except Exception as e:
+            logger.error(f"新增 goods_videos 失败: {e}")
+            return None
+
+    def update_goods_video(self, goods_id: int, updates: Dict[str, Any]) -> bool:
+        """根据ID更新带货视频记录，updates为要更新的字段字典"""
+        if not updates:
+            return True
+        try:
+            # 允许更新的字段白名单
+            allowed = {"title", "main_image", "white_image", "prompt", "task_id", "updated_at"}
+            set_clauses = []
+            values: List[Any] = []
+            for k, v in updates.items():
+                if k in allowed and k != "updated_at":
+                    set_clauses.append(f"{k} = ?")
+                    values.append(v)
+            # 始终更新更新时间
+            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+            sql = f"UPDATE goods_videos SET {', '.join(set_clauses)} WHERE id = ?"
+            values.append(goods_id)
+
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(sql, tuple(values))
+            conn.commit()
+            conn.close()
+            logger.info(f"更新 goods_videos 记录: id={goods_id}, updates={updates}")
+            return True
+        except Exception as e:
+            logger.error(f"更新 goods_videos 失败: {e}")
+            return False
+
+    def get_goods_videos(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """分页查询带货视频记录"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, title, main_image, white_image, prompt, task_id, created_at, updated_at
+                FROM goods_videos
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            ''', (limit, offset))
+            rows = cursor.fetchall()
+            conn.close()
+
+            result: List[Dict[str, Any]] = []
+            for r in rows:
+                result.append({
+                    'id': r[0],
+                    'title': r[1],
+                    'main_image': r[2],
+                    'white_image': r[3],
+                    'prompt': r[4],
+                    'task_id': r[5],
+                    'created_at': r[6],
+                    'updated_at': r[7],
+                })
+            return result
+        except Exception as e:
+            logger.error(f"查询 goods_videos 失败: {e}")
+            return []
+
+    def get_goods_video_by_id(self, goods_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取带货视频记录"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, title, main_image, white_image, prompt, task_id, created_at, updated_at
+                FROM goods_videos
+                WHERE id = ?
+            ''', (goods_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if not row:
+                return None
+            return {
+                'id': row[0],
+                'title': row[1],
+                'main_image': row[2],
+                'white_image': row[3],
+                'prompt': row[4],
+                'task_id': row[5],
+                'created_at': row[6],
+                'updated_at': row[7],
+            }
+        except Exception as e:
+            logger.error(f"获取 goods_videos 失败: {e}")
+            return None
 
     def get_upscale_servers(self, enabled_only: bool = False) -> List[Dict[str, Any]]:
         """获取高清放大服务器列表"""
