@@ -58,6 +58,24 @@ class TaskListWidget(QWidget):
         header_layout.addWidget(title)
         header_layout.addStretch()
 
+        # 刷新按钮（位于“视频克隆”左侧）
+        self.refresh_btn = PushButton('刷新')
+        self.refresh_btn.setFixedWidth(80)
+        self.refresh_btn.clicked.connect(self.refresh_tasks)
+        header_layout.addWidget(self.refresh_btn)
+
+        # 剧本生成按钮（位于刷新旁边）
+        self.script_generate_btn = PushButton('剧本生成')
+        self.script_generate_btn.setFixedWidth(100)
+        self.script_generate_btn.clicked.connect(self.show_script_generation_flow)
+        header_layout.addWidget(self.script_generate_btn)
+
+        # 全部删除（仅删除已完成任务）
+        self.delete_all_btn = PushButton('全部删除')
+        self.delete_all_btn.setFixedWidth(100)
+        self.delete_all_btn.clicked.connect(self.delete_all_completed)
+        header_layout.addWidget(self.delete_all_btn)
+
         # 视频克隆按钮
         self.video_clone_btn = PushButton('视频克隆')
         self.video_clone_btn.clicked.connect(self.show_video_clone_dialog)
@@ -168,6 +186,113 @@ class TaskListWidget(QWidget):
         self.task_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.task_table.setSelectionMode(QTableWidget.MultiSelection)
         self.task_table.itemSelectionChanged.connect(self.on_selection_changed)
+
+    def refresh_tasks(self):
+        """刷新任务列表"""
+        try:
+            self.load_tasks()
+            # 清空选择状态
+            self.selected_tasks.clear()
+            self.is_all_selected = False
+            self.update_select_button_text()
+
+            InfoBar.success(
+                title='已刷新',
+                content='任务列表已刷新',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=1500,
+                parent=self
+            )
+        except Exception as e:
+            InfoBar.error(
+                title='错误',
+                content=f'刷新失败: {str(e)}',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def show_script_generation_flow(self):
+        """显示剧本生成流程：参数输入 -> 剧本列表"""
+        try:
+            from components.script_batch_dialog import ScriptParamsDialog, ScriptListDialog
+            # 第一步：参数输入
+            params_dialog = ScriptParamsDialog(self.window())
+            if params_dialog.exec_() == QDialog.Accepted:
+                params = params_dialog.get_params()
+                # 第二步：剧本列表生成对话框
+                list_dialog = ScriptListDialog(
+                    theme=params['theme'],
+                    aspect_ratio=params['aspect_ratio'],
+                    duration=params['duration'],
+                    count=params['count'],
+                    parent=self.window()
+                )
+                list_dialog.exec_()
+        except Exception as e:
+            InfoBar.error(
+                title='错误',
+                content=f'打开剧本生成失败: {str(e)}',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+
+    def delete_all_completed(self):
+        """删除所有已完成和失败任务（危险操作）"""
+        dialog = MessageBox(
+            title='危险操作',
+            content='将删除所有状态为“已完成”和“失败”的任务，且不可恢复。\n请慎重选择，是否继续？',
+            parent=self
+        )
+        dialog.yesButton.setText('谨慎删除')
+        dialog.cancelButton.setText('取消')
+
+        if dialog.exec():
+            try:
+                deleted = db_manager.delete_completed_tasks()
+                self.load_tasks()
+                # 重置选择
+                self.selected_tasks.clear()
+                self.is_all_selected = False
+                self.update_select_button_text()
+
+                if deleted > 0:
+                    InfoBar.success(
+                        title='已删除',
+                        content=f'共删除 {deleted} 条已完成/失败任务',
+                        orient=Qt.Horizontal,  # type: ignore
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2500,
+                        parent=self
+                    )
+                else:
+                    InfoBar.info(
+                        title='无变化',
+                        content='当前没有已完成或失败任务可删除',
+                        orient=Qt.Horizontal,  # type: ignore
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2000,
+                        parent=self
+                    )
+            except Exception as e:
+                InfoBar.error(
+                    title='错误',
+                    content=f'删除失败: {str(e)}',
+                    orient=Qt.Horizontal,  # type: ignore
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
 
     def load_tasks(self):
         """加载任务列表（分页）"""

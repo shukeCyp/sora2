@@ -48,8 +48,8 @@ class AddTaskDialog(QDialog):
         
         # 分辨率选择
         self.resolution_combo = ComboBox()
-        self.resolution_combo.addItem("横屏 (16:9)", "16:9")
-        self.resolution_combo.addItem("竖屏 (9:16)", "9:16")
+        self.resolution_combo.addItem("横屏 (16:9)", None, "16:9")
+        self.resolution_combo.addItem("竖屏 (9:16)", None, "9:16")
         self.resolution_combo.setCurrentIndex(0)  # 默认横屏
         form_layout.addRow("分辨率:", self.resolution_combo)
         

@@ -1010,6 +1010,34 @@ class DatabaseManager:
             logger.error(f"清空任务失败: {e}")
             return False
 
+    def delete_completed_tasks(self) -> int:
+        """删除所有状态为 completed 和 failed 的任务，同时清理关联的 chat_tasks 记录。
+        返回删除的任务数量。"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # 先删除关联的 chat_tasks 记录（若未启用外键约束，手动清理）
+            cursor.execute('''
+                DELETE FROM chat_tasks
+                WHERE task_id IN (
+                    SELECT task_id FROM tasks WHERE status IN ('completed', 'failed')
+                )
+            ''')
+
+            # 再删除已完成/失败的任务
+            cursor.execute("DELETE FROM tasks WHERE status IN ('completed', 'failed')")
+            deleted_count = cursor.rowcount
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"已删除 {deleted_count} 条已完成/失败任务")
+            return deleted_count
+        except Exception as e:
+            logger.error(f"删除已完成任务失败: {e}")
+            return 0
+
     def get_task_statistics(self) -> Dict[str, int]:
         """获取任务统计信息"""
         try:
