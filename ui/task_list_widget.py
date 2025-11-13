@@ -14,6 +14,7 @@ from PyQt5.QtGui import QColor, QBrush, QFont
 from qfluentwidgets import (
     TitleLabel, PushButton, PrimaryPushButton, BodyLabel, TableWidget, RoundMenu, Action, FluentIcon, InfoBar, InfoBarPosition, MessageBox
 )
+from loguru import logger
 
 from database_manager import db_manager
 from ui.image_widget import ImageWidget
@@ -104,10 +105,10 @@ class TaskListWidget(QWidget):
         self.batch_add_task_btn.clicked.connect(self.show_batch_add_task_dialog)
         header_layout.addWidget(self.batch_add_task_btn)
 
-        # 失败原因说明按钮
-        self.failure_reason_btn = PushButton('失败原因')
-        self.failure_reason_btn.clicked.connect(self.show_failure_reason_dialog)
-        header_layout.addWidget(self.failure_reason_btn)
+        # 去首帧按钮
+        self.remove_first_frame_btn = PushButton('去首帧')
+        self.remove_first_frame_btn.clicked.connect(self.show_remove_first_frame_dialog)
+        header_layout.addWidget(self.remove_first_frame_btn)
 
         layout.addLayout(header_layout)
         
@@ -910,6 +911,100 @@ class TaskListWidget(QWidget):
         except Exception as e:
             print(f"显示视频克隆对话框失败: {e}")
 
+    def show_remove_first_frame_dialog(self):
+        """选择文件夹并去除该文件夹内所有视频的首帧（覆盖原视频）"""
+        try:
+            # 选择目标文件夹
+            from PyQt5.QtWidgets import QFileDialog
+            folder = QFileDialog.getExistingDirectory(self, '选择包含视频的文件夹')
+            if not folder:
+                logger.info('用户取消选择文件夹，未进行首帧移除')
+                return
+            logger.info(f'选择文件夹用于首帧移除: {folder}')
+            # 扫描文件夹内的视频文件（不递归）
+            import os, glob
+            video_exts = (".mp4", ".mov", ".mkv", ".webm")
+            target_files = []
+            for ext in video_exts:
+                pattern = os.path.join(folder, f"*{ext}")
+                target_files.extend(glob.glob(pattern))
+
+            logger.info(f"检测到视频文件数: {len(target_files)} in {folder}")
+
+            if not target_files:
+                logger.warning(f"该文件夹中没有可处理的视频文件: {folder}")
+                InfoBar.warning(
+                    title='提示',
+                    content='该文件夹中没有可处理的视频文件（支持 mp4/mov/mkv/webm）',
+                    orient=Qt.Horizontal,  # type: ignore
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2500,
+                    parent=self
+                )
+                return
+
+            # 启动子线程处理
+            from threads.video_first_frame_removal_thread import VideoFirstFrameRemovalThread
+            self._first_frame_thread = VideoFirstFrameRemovalThread(target_files)
+            logger.info(f"启动首帧移除子线程，待处理文件数: {len(target_files)}")
+            self._first_frame_thread.progress.connect(lambda msg: InfoBar.info(
+                title='处理中',
+                content=msg,
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=1500,
+                parent=self
+            ))
+            def on_item_done(success, path, err):
+                if success:
+                    logger.info(f"去首帧成功: {path}")
+                    InfoBar.success(
+                        title='已完成',
+                        content=f'去首帧成功: {os.path.basename(path)}',
+                        orient=Qt.Horizontal,  # type: ignore
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=1600,
+                        parent=self
+                    )
+                else:
+                    logger.error(f"去首帧失败: {path} - {err}")
+                    InfoBar.error(
+                        title='失败',
+                        content=f'处理失败: {os.path.basename(path)} - {err}',
+                        orient=Qt.Horizontal,  # type: ignore
+                        isClosable=True,
+                        position=InfoBarPosition.TOP,
+                        duration=2500,
+                        parent=self
+                    )
+            self._first_frame_thread.item_finished.connect(on_item_done)
+            def on_all_done(total, success_count):
+                logger.info(f"首帧移除完成，成功/总: {success_count}/{total}")
+                InfoBar.success(
+                    title='全部完成',
+                    content=f'该文件夹共检测到 {total} 个视频，成功处理 {success_count} 个',
+                    orient=Qt.Horizontal,  # type: ignore
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2200,
+                    parent=self
+                )
+            self._first_frame_thread.finished_summary.connect(on_all_done)
+            self._first_frame_thread.start()
+        except Exception as e:
+            logger.exception(f"首帧移除流程异常: {e}")
+            InfoBar.error(
+                title='错误',
+                content=f'处理失败: {str(e)}',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
     def show_failure_reason_dialog(self):
         """显示失败原因说明对话框"""
         try:
