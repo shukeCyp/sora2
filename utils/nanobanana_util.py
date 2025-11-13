@@ -24,9 +24,9 @@ from database_manager import db_manager
 
 
 def upload_image_to_bed(file_path: str, token: Optional[str] = None, timeout: int = 180) -> str:
-    """上传图片到图床并返回图片URL。
-    - 兼容主页添加任务中的图床上传方式：POST 到 http://image.lanzhi.fun/api/index.php，form-data: image + token。
-    - 成功返回图片URL，失败抛出异常。
+    """上传图片到阿里云OSS并返回URL（与视频克隆一致）。
+    - 不再使用 image.lanzhi.fun 图床，改为直传 OSS。
+    - 成功返回OSS上的公开URL，失败抛出异常。
     """
     if not file_path:
         raise ValueError("file_path 不能为空")
@@ -34,28 +34,42 @@ def upload_image_to_bed(file_path: str, token: Optional[str] = None, timeout: in
     if not p.exists() or not p.is_file():
         raise FileNotFoundError(f"图片文件不存在: {file_path}")
 
-    # 从配置获取 token（如未显式传入）
-    if token is None:
-        token = db_manager.load_config('image_token', '') or ''
-    if not token:
-        raise RuntimeError("未配置图床 token（config.image_token），且未通过参数提供")
+    # 直传到 OSS（与视频克隆线程保持一致的桶与路径）
+    import uuid
+    oss_bucket_url = "https://shuke-sora2.oss-cn-beijing.aliyuncs.com"
+    suffix = p.suffix or '.jpg'
+    unique_name = f"image_{uuid.uuid4().hex}{suffix}"
+    object_key = f"uploads/{unique_name}"
+    upload_url = f"{oss_bucket_url}/{object_key}"
 
-    upload_url = "http://image.lanzhi.fun/api/index.php"
+    # 内容类型
+    def _ct(suf: str) -> str:
+        s = suf.lower()
+        if s in ['.jpg', '.jpeg']:
+            return 'image/jpeg'
+        if s == '.png':
+            return 'image/png'
+        if s == '.gif':
+            return 'image/gif'
+        if s == '.webp':
+            return 'image/webp'
+        if s in ['.bmp']:
+            return 'image/bmp'
+        if s in ['.tif', '.tiff']:
+            return 'image/tiff'
+        return 'application/octet-stream'
+
+    headers = {
+        'Content-Type': _ct(suffix)
+    }
+
     with open(file_path, 'rb') as f:
-        files = {'image': f}
-        data = {'token': token}
-        resp = requests.post(upload_url, files=files, data=data, timeout=timeout)
+        data = f.read()
+    resp = requests.put(upload_url, data=data, headers=headers, timeout=timeout)
 
-    if resp.status_code != 200:
-        raise RuntimeError(f"图床上传失败，状态码: {resp.status_code}, 响应: {resp.text}")
-
-    j = resp.json()
-    if j.get('result') == 'success' and j.get('code') == 200:
-        url = j.get('url') or ''
-        if url:
-            return url
-        raise RuntimeError("上传成功但未返回图片URL")
-    raise RuntimeError(f"上传失败: {j.get('message') or '未知错误'}")
+    if resp.status_code in [200, 201, 204]:
+        return f"{oss_bucket_url}/{object_key}"
+    raise RuntimeError(f"OSS上传失败: {resp.status_code} - {resp.text}")
 
 
 def call_image_chat_completion(
