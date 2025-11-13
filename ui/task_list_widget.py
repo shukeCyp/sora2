@@ -964,7 +964,7 @@ class TaskListWidget(QWidget):
                 if not tasks_data:
                     InfoBar.warning(
                         title='警告',
-                        content='没有有效的任务数据（请拖拽图片并上传成功）',
+                        content='没有有效的任务数据（请确保提示词或图片URL已填充）',
                         orient=Qt.Horizontal,  # type: ignore
                         isClosable=True,
                         position=InfoBarPosition.TOP,
