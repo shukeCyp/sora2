@@ -21,6 +21,9 @@ class VideoUpscaleThread(QThread):
         self.scale = scale
         self.comfyui_server = comfyui_server
 
+    def _base(self):
+        return (self.comfyui_server or "").rstrip('/')
+
     def run(self):
         """执行高清放大"""
         try:
@@ -53,8 +56,7 @@ class VideoUpscaleThread(QThread):
             self.progress.emit("正在上传视频文件...")
             with open(self.video_path, 'rb') as video_file:
                 files = {'image': (video_filename, video_file, 'video/mp4')}
-                # 使用ComfyUI的标准上传端点
-                upload_response = requests.post(f"{self.comfyui_server}/upload/image", files=files)
+                upload_response = requests.post(f"{self._base()}/upload/image", files=files)
             
             if upload_response.status_code != 200:
                 self.finished.emit(False, f"上传视频文件失败: {upload_response.status_code}: {upload_response.text}", "")
@@ -63,7 +65,7 @@ class VideoUpscaleThread(QThread):
             # 发送工作流到ComfyUI
             self.progress.emit("正在发送处理请求...")
             workflow_response = requests.post(
-                f"{self.comfyui_server}/prompt",
+                f"{self._base()}/prompt",
                 json={"prompt": workflow}
             )
             
@@ -91,7 +93,7 @@ class VideoUpscaleThread(QThread):
             while wait_time < max_wait_time:
                 # 检查处理状态
                 try:
-                    status_response = requests.get(f"{self.comfyui_server}/history")
+                    status_response = requests.get(f"{self._base()}/history")
                     if status_response.status_code == 200:
                         history_data = status_response.json()
                         # 查找我们的prompt_id
@@ -195,7 +197,7 @@ class VideoUpscaleThread(QThread):
 
             # 发送下载请求
             download_response = requests.get(
-                f"{self.comfyui_server}/view",
+                f"{self._base()}/view",
                 params=download_params,
                 timeout=60
             )
