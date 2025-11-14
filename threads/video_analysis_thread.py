@@ -4,6 +4,7 @@
 """
 
 import requests
+from requests.exceptions import ProxyError, ConnectionError
 import json
 import os
 import uuid
@@ -32,7 +33,7 @@ class VideoAnalysisThread(QThread):
             if not self.check_file_size():
                 return
                 
-            self.progress.emit("正在上传视频到阿里云OSS...")
+            self.progress.emit("正在上传视频到文件服务...")
             
             # 先上传视频到阿里云OSS
             video_url = self.upload_video_to_oss()
@@ -70,52 +71,121 @@ class VideoAnalysisThread(QThread):
             return False
 
     def upload_video_to_oss(self):
-        """上传视频到阿里云OSS"""
+        """通过文件服务接口上传视频并返回可访问URL
+
+        使用 {api_base_url}/v1/files，multipart/form-data，字段 `file`。
+        保留原方法名以兼容调用方。
+        """
         try:
-            logger.info(f"开始上传视频到阿里云OSS: {self.video_path}")
-            
-            # 阿里云OSS桶地址
-            oss_bucket_url = "https://shuke-sora2.oss-cn-beijing.aliyuncs.com"
-            logger.debug(f"使用OSS桶地址: {oss_bucket_url}")
-            
-            # 生成唯一的文件名
-            file_extension = Path(self.video_path).suffix
-            unique_filename = f"video_{uuid.uuid4().hex}{file_extension}"
-            object_key = f"uploads/{unique_filename}"
-            
-            # 构建上传URL (使用PUT方法)
-            upload_url = f"{oss_bucket_url}/{object_key}"
-            logger.debug(f"上传URL: {upload_url}")
-            
-            # 读取视频文件内容
-            with open(self.video_path, 'rb') as video_file:
-                video_data = video_file.read()
-                
-            # 设置请求头
+            p = Path(self.video_path)
+            if not p.exists() or not p.is_file():
+                raise FileNotFoundError(f"视频文件不存在: {self.video_path}")
+
+            # 读取 API 基础地址与密钥
+            base_url = "https://api.shaohua.fun"
+            api_key = db_manager.load_config('api_key', '')
+            endpoint = f"{base_url.rstrip('/')}/v1/files"
+
+            logger.info(f"api_key: {api_key}")
+
+            logger.info(f"开始上传视频到文件服务: path={self.video_path} endpoint={endpoint}")
+
+            # 内容类型推断
+            def _guess_ct(suffix: str) -> str:
+                s = (suffix or '').lower()
+                if s in ['.mp4', '.m4v']:
+                    return 'video/mp4'
+                if s == '.avi':
+                    return 'video/x-msvideo'
+                if s == '.mov':
+                    return 'video/quicktime'
+                if s == '.mkv':
+                    return 'video/x-matroska'
+                if s == '.wmv':
+                    return 'video/x-ms-wmv'
+                if s == '.flv':
+                    return 'video/x-flv'
+                if s == '.webm':
+                    return 'video/webm'
+                return 'application/octet-stream'
+
+            content_type = _guess_ct(p.suffix)
+
             headers = {
-                'Content-Type': 'video/mp4',  # 根据实际文件类型调整
+                'Accept': 'application/json',
             }
-            
-            self.progress.emit("正在上传视频文件到阿里云OSS...")
-            logger.info("开始发送上传请求到阿里云OSS (使用PUT方法)")
-            
-            # 发送上传请求 (使用PUT方法)
-            response = requests.put(upload_url, data=video_data, headers=headers, timeout=300)
-            logger.info(f"上传请求完成，状态码: {response.status_code}")
-            
-            if response.status_code in [200, 201, 204]:
-                # 上传成功，返回可访问的URL
-                video_url = f"{oss_bucket_url}/{object_key}"
-                logger.info(f"视频上传成功，URL: {video_url}")
-                return video_url
+            if api_key:
+                headers['Authorization'] = f"Bearer {api_key}"
+
+            f = open(self.video_path, 'rb')
+            files = {
+                'file': (p.name, f, content_type)
+            }
+
+            # 保持原有的进度提示文案，避免UI变更
+            self.progress.emit("正在上传视频文件到文件服务...")
+
+            # 禁用系统代理，避免 127.0.0.1:7890 等导致连接失败
+            session = requests.Session()
+            session.trust_env = False
+            session.proxies = {}
+            try:
+                resp = session.post(
+                    endpoint,
+                    files=files,
+                    headers=headers,
+                    timeout=300,
+                    proxies={}
+                )
+            except (ProxyError, ConnectionError) as e:
+                logger.warning(f"首次上传因代理/网络异常失败，将在禁用代理下重试: {e}")
+                try:
+                    resp = requests.post(
+                        endpoint,
+                        files=files,
+                        headers=headers,
+                        timeout=300,
+                        proxies={}
+                    )
+                except Exception as e2:
+                    raise e2
+            finally:
+                try:
+                    session.close()
+                except Exception:
+                    pass
+
+            logger.info(f"文件服务上传完成，状态码: {resp.status_code}")
+            try:
+                f.close()
+            except Exception:
+                pass
+
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                except Exception:
+                    raise Exception(f"解析响应失败（非JSON）: {resp.text[:200]}")
+
+                video_url = data.get('url') or ''
+                if not video_url:
+                    file_id = data.get('id')
+                    filename = data.get('filename') or p.name
+                    logger.warning(f"响应未包含 url，id={file_id}, filename={filename}")
+                    # 尝试构造可能的下载地址（若服务支持）
+                    possible = f"{base_url.rstrip('/')}/v1/files/{file_id}/content" if file_id else ''
+                    video_url = possible
+
+                if video_url:
+                    logger.info(f"视频上传成功，URL: {video_url}")
+                    return video_url
+                else:
+                    raise Exception("上传成功但响应未提供可访问URL")
             else:
-                error_msg = f"视频上传到阿里云OSS失败: {response.status_code} - {response.text}"
-                logger.error(error_msg)
-                raise Exception(error_msg)
-                
+                raise Exception(f"上传失败: {resp.status_code} - {resp.text[:200]}")
         except Exception as e:
-            logger.error(f"视频上传到阿里云OSS失败: {str(e)}")
-            logger.exception(e)  # 记录完整的异常堆栈
+            logger.error(f"视频上传到文件服务失败: {str(e)}")
+            logger.exception(e)
             raise
 
     def analyze_video_with_proxy(self, video_url):
@@ -123,20 +193,20 @@ class VideoAnalysisThread(QThread):
         try:
             logger.info(f"开始分析视频，URL: {video_url}")
             
-            # 从数据库获取API代理地址
-            api_proxy = "https://api.shaohua.fun"  # 默认代理地址
-            logger.debug(f"使用API代理地址: {api_proxy}")
+            # 从数据库获取API基础地址（与设置一致），否则使用默认
+            api_proxy = "https://api.shaohua.fun"
+            logger.info(f"使用API代理地址: {api_proxy}")
             
             # 构建API请求
             url = f"{api_proxy}/v1/chat/completions"
-            logger.debug(f"分析API URL: {url}")
+            logger.info(f"分析API URL: {url}")
             
             headers = {
                 "Content-Type": "application/json",
                 "Accept": "application/json",
                 "Authorization": f"Bearer {self.api_key}"
             }
-            logger.debug(f"分析请求头设置完成")
+            logger.info(f"分析请求头设置完成")
             
             # 构建请求体，包含视频URL
             payload = {
@@ -169,18 +239,41 @@ class VideoAnalysisThread(QThread):
                 ],
                 "max_tokens": 4000
             }
-            logger.debug(f"分析请求体构建完成，模型: {payload['model']}")
+            logger.info(f"分析请求体构建完成，模型: {payload['model']}")
             
             self.progress.emit("正在调用视频分析API...")
             
-            # 发送请求
+            # 发送请求（禁用系统代理，避免 127.0.0.1:7890 等代理导致连接失败）
             logger.info("开始发送分析请求")
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            session = requests.Session()
+            session.trust_env = False
+            try:
+                response = session.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=120,
+                    proxies={"http": None, "https": None}
+                )
+            except (ProxyError, ConnectionError) as e:
+                logger.warning(f"分析请求因代理/网络异常失败，将在禁用代理下重试: {e}")
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=120,
+                    proxies={"http": None, "https": None}
+                )
+            finally:
+                try:
+                    session.close()
+                except Exception:
+                    pass
             logger.info(f"分析请求完成，状态码: {response.status_code}")
             
             if response.status_code == 200:
                 result = response.json()
-                logger.debug(f"分析响应: {result}")
+                logger.info(f"分析响应: {result}")
                 
                 # 解析响应结果
                 analysis_result = self.parse_api_response(result)

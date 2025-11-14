@@ -57,6 +57,7 @@ from threads.image_upload_thread import ImageUploadThread
 from threads.video_download_thread import VideoDownloadThread
 from threads.task_status_check_thread import TaskStatusCheckThread
 from threads.video_generation_thread import VideoGenerationThread
+from threads.version_check_thread import VersionCheckThread
 
 # 导入数据模型
 from models.task_model import TaskModel
@@ -104,6 +105,10 @@ class MainWindow(FluentWindow):
         
         # 连接Chat任务完成信号
         self.chat_task_completed.connect(self._on_chat_task_done)
+
+        # 启动版本检查（延时以避免阻塞首屏）
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(1200, self.start_version_check_thread)
 
     def init_ui(self):
         """初始化UI"""
@@ -227,6 +232,63 @@ class MainWindow(FluentWindow):
             logger.info("任务状态检查线程已启动")
         except Exception as e:
             logger.error(f"启动任务状态检查线程失败: {e}")
+
+    def start_version_check_thread(self):
+        """启动版本检查线程并在有更新时弹窗提示"""
+        try:
+            self._version_thread = VersionCheckThread()
+            self._version_thread.check_finished.connect(self.on_version_check_finished)
+            self._version_thread.start()
+            logger.info("版本检查线程已启动")
+        except Exception as e:
+            logger.error(f"启动版本检查线程失败: {e}")
+
+    def on_version_check_finished(self, result: dict):
+        """版本检查完成回调"""
+        try:
+            if not result.get("ok"):
+                logger.warning(f"版本检查未成功: {result.get('error','')} ")
+                return
+
+            latest = result.get("latest_version", "")
+            current = result.get("current_version", "")
+            release_url = result.get("release_url", "https://gitee.com/shuk513/sora2/releases")
+            body_text = result.get("release_body", "")
+            # 摘要化，避免弹窗过长
+            if body_text:
+                body_text = body_text.replace('\r', '\n')
+                # 压缩连续空行
+                import re
+                body_text = re.sub(r"\n{3,}", "\n\n", body_text)
+                # 截断至 800 字符
+                max_len = 800
+                if len(body_text) > max_len:
+                    body_text = body_text[:max_len].rstrip() + "..."
+
+            if result.get("has_update") and latest:
+                # 弹窗提示更新
+                content_lines = [
+                    f'检测到新版本 v{latest}，当前版本 v{current}',
+                ]
+                if body_text:
+                    content_lines += ["", "更新内容:", body_text, "", "是否前往下载更新？"]
+                else:
+                    content_lines += ["", "无法获取更新说明正文，是否前往下载页面查看？"]
+
+                box = MessageBox(
+                    title='发现新版本',
+                    content='\n'.join(content_lines),
+                    parent=self
+                )
+                box.yesButton.setText('前往下载')
+                box.cancelButton.setText('稍后再说')
+
+                if box.exec():
+                    QDesktopServices.openUrl(QUrl(release_url))
+            else:
+                logger.info("当前已是最新版本或无法获取最新版本号")
+        except Exception as e:
+            logger.error(f"处理版本检查结果时出错: {e}")
 
     def on_task_status_updated(self, task_id, updates):
         """任务状态更新回调 - 线程安全的界面更新"""

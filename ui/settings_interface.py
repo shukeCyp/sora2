@@ -14,6 +14,7 @@ from qfluentwidgets import (
 )
 
 from database_manager import db_manager
+from version import __version__
 
 class SettingsInterface(QWidget):
     """设置界面"""
@@ -39,8 +40,8 @@ class SettingsInterface(QWidget):
         version_title.setStyleSheet("font-weight: bold; font-size: 14px;")
         version_layout.addWidget(version_title)
 
-        # 版本号
-        version_label = BodyLabel('版本: v2.4.0')
+        # 版本号（统一来源）
+        version_label = BodyLabel(f'版本: v{__version__}')
         version_label.setStyleSheet("color: #666; font-size: 13px;")
         version_layout.addWidget(version_label)
 
