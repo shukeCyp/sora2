@@ -24,25 +24,16 @@ from database_manager import db_manager
 
 
 def upload_image_to_bed(file_path: str, token: Optional[str] = None, timeout: int = 180) -> str:
-    """上传图片到阿里云OSS并返回URL（与视频克隆一致）。
-    - 不再使用 image.lanzhi.fun 图床，改为直传 OSS。
-    - 成功返回OSS上的公开URL，失败抛出异常。
-    """
     if not file_path:
         raise ValueError("file_path 不能为空")
     p = Path(file_path)
     if not p.exists() or not p.is_file():
         raise FileNotFoundError(f"图片文件不存在: {file_path}")
 
-    # 直传到 OSS（与视频克隆线程保持一致的桶与路径）
-    import uuid
-    oss_bucket_url = "https://shuke-sora2.oss-cn-beijing.aliyuncs.com"
-    suffix = p.suffix or '.jpg'
-    unique_name = f"image_{uuid.uuid4().hex}{suffix}"
-    object_key = f"uploads/{unique_name}"
-    upload_url = f"{oss_bucket_url}/{object_key}"
+    base_url = "https://api.shaohua.fun"
+    api_key = db_manager.load_config('api_key', '') or ''
+    endpoint = f"{base_url.rstrip('/')}/v1/files"
 
-    # 内容类型
     def _ct(suf: str) -> str:
         s = suf.lower()
         if s in ['.jpg', '.jpeg']:
@@ -59,17 +50,58 @@ def upload_image_to_bed(file_path: str, token: Optional[str] = None, timeout: in
             return 'image/tiff'
         return 'application/octet-stream'
 
+    suffix = p.suffix or '.jpg'
+    content_type = _ct(suffix)
+
     headers = {
-        'Content-Type': _ct(suffix)
+        'Accept': 'application/json',
+    }
+    if api_key:
+        headers['Authorization'] = f"Bearer {api_key}"
+
+    f = open(file_path, 'rb')
+    files = {
+        'file': (p.name, f, content_type)
     }
 
-    with open(file_path, 'rb') as f:
-        data = f.read()
-    resp = requests.put(upload_url, data=data, headers=headers, timeout=timeout)
+    session = requests.Session()
+    session.trust_env = False
+    try:
+        resp = session.post(
+            endpoint,
+            files=files,
+            headers=headers,
+            timeout=timeout,
+            proxies={"http": None, "https": None}
+        )
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+        try:
+            f.close()
+        except Exception:
+            pass
 
-    if resp.status_code in [200, 201, 204]:
-        return f"{oss_bucket_url}/{object_key}"
-    raise RuntimeError(f"OSS上传失败: {resp.status_code} - {resp.text}")
+    if resp.status_code == 200:
+        try:
+            data = resp.json()
+        except Exception:
+            raise RuntimeError(f"解析响应失败（非JSON）: {resp.text[:200]}")
+
+        image_url = data.get('url') or ''
+        if not image_url:
+            file_id = data.get('id')
+            filename = data.get('filename') or p.name
+            possible = f"{base_url.rstrip('/')}/v1/files/{file_id}/content" if file_id else ''
+            image_url = possible
+
+        if image_url:
+            return image_url
+        raise RuntimeError("上传成功但响应未提供可访问URL")
+
+    raise RuntimeError(f"上传失败: {resp.status_code} - {resp.text[:200]}")
 
 
 def call_image_chat_completion(
