@@ -22,6 +22,16 @@ if %errorlevel% neq 0 (
 )
 echo.
 
+echo 安装/更新 imageio 及 imageio-ffmpeg...
+python -m pip install --upgrade imageio imageio-ffmpeg
+if %errorlevel% neq 0 (
+    echo 依赖安装失败！
+    pause
+    exit /b 1
+)
+echo 依赖安装完成
+echo.
+
 :: 清理旧的打包文件
 echo [2/5] 清理旧的打包文件...
 if exist build rmdir /s /q build
@@ -41,7 +51,7 @@ echo [3/5] 开始打包...
 echo 正在使用 PyInstaller 打包成单文件 exe...
 echo.
 
-python -m PyInstaller --onefile --windowed --name "Sora2" --hidden-import PyQt5 --hidden-import PyQt5.QtCore --hidden-import PyQt5.QtGui --hidden-import PyQt5.QtWidgets --hidden-import qfluentwidgets --hidden-import requests --hidden-import loguru --hidden-import sqlite3 --collect-all qfluentwidgets --add-data "sora2_up.json;." --add-data "README.md;." --noconfirm main.py
+python -m PyInstaller --onefile --windowed --name "Sora2" --hidden-import PyQt5 --hidden-import PyQt5.QtCore --hidden-import PyQt5.QtGui --hidden-import PyQt5.QtWidgets --hidden-import qfluentwidgets --hidden-import requests --hidden-import loguru --hidden-import sqlite3 --hidden-import imageio --hidden-import imageio_ffmpeg --collect-all qfluentwidgets --collect-all imageio_ffmpeg --add-data "sora2_up.json;." --add-data "README.md;." --noconfirm main.py
 
 if %errorlevel% neq 0 (
     echo.

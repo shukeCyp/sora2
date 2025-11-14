@@ -1,6 +1,5 @@
 """
 子线程：批量移除视频首帧（覆盖原视频）
-依赖系统已安装 ffmpeg。
 """
 
 import os
@@ -8,6 +7,7 @@ import subprocess
 from typing import List
 from PyQt5.QtCore import QThread, pyqtSignal
 from loguru import logger
+import imageio_ffmpeg
 
 
 class VideoFirstFrameRemovalThread(QThread):
@@ -37,8 +37,9 @@ class VideoFirstFrameRemovalThread(QThread):
 
                 # ffmpeg命令：移除第一帧视频并重置时间戳
                 # -y 覆盖输出；-hide_banner 减少日志；-loglevel error 仅输出错误
+                ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
                 cmd = [
-                    "ffmpeg",
+                    ffmpeg_exe,
                     "-hide_banner",
                     "-loglevel", "error",
                     "-y",
