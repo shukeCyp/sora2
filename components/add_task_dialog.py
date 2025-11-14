@@ -11,6 +11,7 @@ from qfluentwidgets import (
 )
 
 from database_manager import db_manager, model_manager
+from utils.global_thread_pool import global_thread_pool
 from threads.image_upload_thread import ImageUploadThread
 from ui.drag_drop_text_edit import DragDropTextEdit
 
@@ -192,7 +193,7 @@ class AddTaskDialog(QDialog):
         upload_thread = ImageUploadThread(file_path, token)
         upload_thread.progress.connect(self.on_upload_progress)
         upload_thread.finished.connect(self.on_upload_finished)
-        upload_thread.start()
+        global_thread_pool.submit(upload_thread)
 
         self.upload_threads.append(upload_thread)
 

@@ -16,6 +16,7 @@ from qfluentwidgets import (
 )
 
 from threads.image_upload_thread import ImageUploadThread
+from utils.global_thread_pool import global_thread_pool
 
 
 class ImageBatchAddDialog(QDialog):
@@ -304,7 +305,7 @@ class ImageBatchAddDialog(QDialog):
         # 闭包捕获行索引
         row_index = self.table.rowCount() - 1
         thread.finished.connect(lambda success, message, url: self._on_upload_finished(row_index, success, message, url))
-        thread.start()
+        global_thread_pool.submit(thread)
         self._upload_threads.append(thread)
 
     def _on_upload_finished(self, row: int, success: bool, message: str, image_url: str):

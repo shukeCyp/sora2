@@ -19,6 +19,7 @@ from loguru import logger
 from database_manager import db_manager
 from ui.image_widget import ImageWidget
 from threads.video_download_thread import VideoDownloadThread
+from utils.global_thread_pool import global_thread_pool
 
 
 class TaskListWidget(QWidget):
@@ -83,17 +84,11 @@ class TaskListWidget(QWidget):
         self.video_clone_btn.setFixedWidth(100)
         header_layout.addWidget(self.video_clone_btn)
 
-        # 全选按钮
-        self.select_all_btn = PushButton('全选')
-        self.select_all_btn.clicked.connect(self.toggle_select_all)
-        self.select_all_btn.setFixedWidth(80)
-        header_layout.addWidget(self.select_all_btn)
-
-        # 批量下载按钮
-        self.batch_download_btn = PushButton('批量下载')
-        self.batch_download_btn.clicked.connect(self.batch_download_videos)
-        self.batch_download_btn.setFixedWidth(100)
-        header_layout.addWidget(self.batch_download_btn)
+        # 全部下载按钮
+        self.download_all_btn = PushButton('全部下载')
+        self.download_all_btn.clicked.connect(self.download_all_videos)
+        self.download_all_btn.setFixedWidth(100)
+        header_layout.addWidget(self.download_all_btn)
 
         # 添加任务按钮
         self.add_task_btn = PrimaryPushButton('添加任务')
@@ -195,7 +190,6 @@ class TaskListWidget(QWidget):
             # 清空选择状态
             self.selected_tasks.clear()
             self.is_all_selected = False
-            self.update_select_button_text()
 
             InfoBar.success(
                 title='已刷新',
@@ -262,7 +256,6 @@ class TaskListWidget(QWidget):
                 # 重置选择
                 self.selected_tasks.clear()
                 self.is_all_selected = False
-                self.update_select_button_text()
 
                 if deleted > 0:
                     InfoBar.success(
@@ -494,15 +487,15 @@ class TaskListWidget(QWidget):
         tasks = db_manager.get_tasks_paginated(limit=self.page_size, offset=offset)
 
         # 更新选中的任务ID
-        self.selected_tasks.clear()
+        if not self.is_all_selected:
+            self.selected_tasks.clear()
         for row in selected_rows:
             if row < len(tasks):
                 task_id = tasks[row].get('task_id')
                 if task_id:
                     self.selected_tasks.add(task_id)
 
-        # 更新按钮文本
-        self.update_select_button_text()
+        pass
 
     def update_select_button_text(self):
         """更新全选按钮文本"""
@@ -522,15 +515,22 @@ class TaskListWidget(QWidget):
             self.is_all_selected = False
             self.select_all_btn.setText('全选')
         else:
-            # 全选当前页
-            self.task_table.selectAll()
-            offset = (self.current_page - 1) * self.page_size
-            tasks = db_manager.get_tasks_paginated(limit=self.page_size, offset=offset)
-
+            # 全选所有页
             self.selected_tasks.clear()
-            for task in tasks:
-                if task.get('task_id'):
-                    self.selected_tasks.add(task.get('task_id'))
+            total = db_manager.get_tasks_count()
+            batch = max(50, self.page_size)
+            fetched = 0
+            while fetched < total:
+                page_tasks = db_manager.get_tasks_paginated(limit=batch, offset=fetched)
+                if not page_tasks:
+                    break
+                for task in page_tasks:
+                    tid = task.get('task_id')
+                    if tid:
+                        self.selected_tasks.add(tid)
+                fetched += len(page_tasks)
+            # 视觉上选中当前页
+            self.task_table.selectAll()
 
             self.is_all_selected = True
             self.select_all_btn.setText('取消全选')
@@ -549,18 +549,23 @@ class TaskListWidget(QWidget):
             )
             return
 
-        # 获取选中任务的详细信息
+        # 获取选中任务的详细信息（跨所有页）
         selected_tasks_data = []
-        offset = (self.current_page - 1) * self.page_size
-        tasks = db_manager.get_tasks_paginated(limit=self.page_size, offset=offset)
-
         downloadable_count = 0
-        for task in tasks:
-            if (task.get('task_id') in self.selected_tasks and
-                task.get('status') == 'completed' and
-                task.get('video_url')):
-                selected_tasks_data.append(task)
-                downloadable_count += 1
+        total = db_manager.get_tasks_count()
+        batch = max(50, self.page_size)
+        fetched = 0
+        while fetched < total:
+            tasks = db_manager.get_tasks_paginated(limit=batch, offset=fetched)
+            if not tasks:
+                break
+            for task in tasks:
+                if (task.get('task_id') in self.selected_tasks and
+                    task.get('status') == 'completed' and
+                    task.get('video_url')):
+                    selected_tasks_data.append(task)
+                    downloadable_count += 1
+            fetched += len(tasks)
 
         if downloadable_count == 0:
             InfoBar.warning(
@@ -625,7 +630,7 @@ class TaskListWidget(QWidget):
             # 创建并启动下载线程
             download_thread = VideoDownloadThread(video_url, save_path, api_key, prompt)
             download_thread.finished.connect(self.on_batch_download_item_finished)
-            download_thread.start()
+            global_thread_pool.submit(download_thread)
             
             # 保存线程引用
             self.batch_download_threads.append(download_thread)
@@ -662,6 +667,72 @@ class TaskListWidget(QWidget):
             self.batch_download_total = 0
             self.batch_download_completed = 0
             self.batch_download_folder = ''
+
+    def download_all_videos(self):
+        selected_tasks_data = []
+        downloadable_count = 0
+        total = db_manager.get_tasks_count()
+        batch = max(50, self.page_size)
+        fetched = 0
+        while fetched < total:
+            tasks = db_manager.get_tasks_paginated(limit=batch, offset=fetched)
+            if not tasks:
+                break
+            for task in tasks:
+                if task.get('status') == 'completed' and task.get('video_url'):
+                    selected_tasks_data.append(task)
+                    downloadable_count += 1
+            fetched += len(tasks)
+
+        if downloadable_count == 0:
+            InfoBar.warning(
+                title='提示',
+                content='当前没有可下载的视频',
+                orient=Qt.Horizontal,  # type: ignore
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+
+        video_save_path = db_manager.load_config('video_save_path', '')
+        if not video_save_path:
+            video_save_path = str(Path.home() / "Downloads" / "Sora2Videos")
+        Path(video_save_path).mkdir(parents=True, exist_ok=True)
+
+        self.batch_download_threads = []
+        self.batch_download_total = downloadable_count
+        self.batch_download_completed = 0
+        self.batch_download_folder = video_save_path
+
+        InfoBar.info(
+            title='开始下载',
+            content=f'正在下载 {downloadable_count} 个视频...',
+            orient=Qt.Horizontal,  # type: ignore
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+
+        api_key = db_manager.load_config('api_key', '')
+
+        import random
+        for index, task in enumerate(selected_tasks_data, start=1):
+            video_url = task.get('video_url')
+            prompt = task.get('prompt', '')
+            clean_prompt = ''.join(c for c in prompt if c.isalnum()).strip()
+            prompt_part = clean_prompt[:20] if clean_prompt else 'untitled'
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            random_suffix = random.randint(100, 999)
+            filename = f"{prompt_part}_{timestamp}_{index:02d}_{random_suffix}.mp4"
+            save_path = str(Path(video_save_path) / filename)
+
+            download_thread = VideoDownloadThread(video_url, save_path, api_key, prompt)
+            download_thread.finished.connect(self.on_batch_download_item_finished)
+            global_thread_pool.submit(download_thread)
+            self.batch_download_threads.append(download_thread)
 
     def open_folder(self, folder_path):
         """打开文件夹"""
