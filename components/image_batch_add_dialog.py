@@ -139,51 +139,44 @@ class ImageBatchAddDialog(QDialog):
             if not file_path:
                 return
             count = 0
-            with open(file_path, 'r', newline='', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    image_path = (row.get('image_path') or '').strip()
-                    prompt = (row.get('prompt') or '').strip()
-                    resolution = (row.get('resolution') or '').strip()
-                    duration_str = (row.get('duration') or '').strip()
-                    if not image_path:
-                        # 如果没有提供图片，按文本任务加入
-                        try:
-                            duration = int(duration_str) if duration_str else self._default_duration
-                        except Exception:
-                            duration = self._default_duration
-                        if resolution not in ("16:9", "9:16"):
-                            resolution = self._default_resolution
-                        self._append_row_no_image(prompt=prompt, resolution=resolution, duration=duration)
-                        count += 1
-                        continue
-                    # 规范化分辨率
-                    if resolution not in ("16:9", "9:16"):
-                        resolution = self._default_resolution
-                    # 规范化时长
+            rows = self._read_csv_rows_with_fallback(file_path)
+            for row in rows:
+                image_path = (row.get('image_path') or '').strip()
+                prompt = (row.get('prompt') or '').strip()
+                resolution = (row.get('resolution') or '').strip()
+                duration_str = (row.get('duration') or '').strip()
+                if not image_path:
                     try:
                         duration = int(duration_str) if duration_str else self._default_duration
                     except Exception:
                         duration = self._default_duration
+                    if resolution not in ("16:9", "9:16"):
+                        resolution = self._default_resolution
+                    self._append_row_no_image(prompt=prompt, resolution=resolution, duration=duration)
+                    count += 1
+                    continue
+                if resolution not in ("16:9", "9:16"):
+                    resolution = self._default_resolution
+                try:
+                    duration = int(duration_str) if duration_str else self._default_duration
+                except Exception:
+                    duration = self._default_duration
 
-                    if image_path.startswith('http://') or image_path.startswith('https://'):
-                        # 直接作为已上传URL加入
-                        self._append_row_direct(url=image_path, prompt=prompt, resolution=resolution, duration=duration)
-                        count += 1
-                    else:
-                        # 本地路径：追加并上传
-                        self._append_row_for_file(image_path)
-                        # 覆盖提示词/分辨率/时长
-                        last_row = self.table.rowCount() - 1
-                        self.table.setItem(last_row, 1, QTableWidgetItem(prompt))
-                        res_widget = self.table.cellWidget(last_row, 2)
-                        dur_widget = self.table.cellWidget(last_row, 3)
-                        if res_widget and hasattr(res_widget, 'setCurrentText'):
-                            res_widget.setCurrentText(resolution)
-                        if dur_widget and hasattr(dur_widget, 'setCurrentText'):
-                            dur_widget.setCurrentText(str(duration))
-                        self._upload_image(image_path)
-                        count += 1
+                if image_path.startswith('http://') or image_path.startswith('https://'):
+                    self._append_row_direct(url=image_path, prompt=prompt, resolution=resolution, duration=duration)
+                    count += 1
+                else:
+                    self._append_row_for_file(image_path)
+                    last_row = self.table.rowCount() - 1
+                    self.table.setItem(last_row, 1, QTableWidgetItem(prompt))
+                    res_widget = self.table.cellWidget(last_row, 2)
+                    dur_widget = self.table.cellWidget(last_row, 3)
+                    if res_widget and hasattr(res_widget, 'setCurrentText'):
+                        res_widget.setCurrentText(resolution)
+                    if dur_widget and hasattr(dur_widget, 'setCurrentText'):
+                        dur_widget.setCurrentText(str(duration))
+                    self._upload_image(image_path)
+                    count += 1
 
             InfoBar.success(
                 title='成功',
@@ -402,3 +395,23 @@ class ImageBatchAddDialog(QDialog):
                 })
 
         return tasks
+
+    def _read_csv_rows_with_fallback(self, file_path: str) -> list[dict]:
+        encodings = [
+            'utf-8-sig',
+            'utf-8',
+            'gbk',
+            'gb2312',
+            'big5',
+            'latin-1'
+        ]
+        last_err = None
+        for enc in encodings:
+            try:
+                with open(file_path, 'r', newline='', encoding=enc) as f:
+                    reader = csv.DictReader(f)
+                    return list(reader)
+            except Exception as e:
+                last_err = e
+                continue
+        raise last_err if last_err else Exception('无法读取CSV文件')
