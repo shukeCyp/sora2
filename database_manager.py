@@ -290,6 +290,8 @@ class DatabaseManager:
                 ('image_token', '1c17b11693cb5ec63859b091c5b9c1b2', 'string', '图床Token'),
                 ('default_model', 'sora-2', 'string', '默认模型'),
                 ('default_duration', '10', 'integer', '默认时长(秒)'),
+                ('add_task_default_resolution', '16:9', 'string', '添加任务默认分辨率'),
+                ('add_task_default_duration', '10', 'integer', '添加任务默认时长'),
                 ('auto_download', 'true', 'boolean', '自动下载视频'),
                 ('video_save_path', '', 'string', '视频保存路径'),
                 ('theme', 'auto', 'string', '主题设置(light/dark/auto)'),

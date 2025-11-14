@@ -10,7 +10,7 @@ from qfluentwidgets import (
     TitleLabel, TextEdit, ComboBox, PushButton, PrimaryPushButton, BodyLabel, CardWidget
 )
 
-from database_manager import model_manager
+from database_manager import db_manager, model_manager
 from threads.image_upload_thread import ImageUploadThread
 from ui.drag_drop_text_edit import DragDropTextEdit
 
@@ -20,7 +20,7 @@ class AddTaskDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.image_urls = []
-        self.selected_duration = 10  # 默认10秒
+        self.selected_duration = db_manager.load_config('add_task_default_duration', 10)
         self.upload_threads = []  # 支持多个上传线程
         self.uploading_count = 0  # 正在上传的图片数量
         self.setWindowTitle("添加视频生成任务")
@@ -50,7 +50,13 @@ class AddTaskDialog(QDialog):
         self.resolution_combo = ComboBox()
         self.resolution_combo.addItem("横屏 (16:9)", None, "16:9")
         self.resolution_combo.addItem("竖屏 (9:16)", None, "9:16")
-        self.resolution_combo.setCurrentIndex(0)  # 默认横屏
+        _def_res = db_manager.load_config('add_task_default_resolution', '16:9')
+        if _def_res == '16:9':
+            self.resolution_combo.setCurrentIndex(0)
+        elif _def_res == '9:16':
+            self.resolution_combo.setCurrentIndex(1)
+        else:
+            self.resolution_combo.setCurrentIndex(0)
         form_layout.addRow("分辨率:", self.resolution_combo)
         
         # 时长选择 - 单选框
@@ -89,6 +95,10 @@ class AddTaskDialog(QDialog):
         duration_layout.addStretch()
 
         form_layout.addRow("时长(秒):", self.duration_group)
+        try:
+            self.set_duration(int(self.selected_duration))
+        except Exception:
+            self.set_duration(10)
         
         layout.addLayout(form_layout)
         
@@ -129,7 +139,7 @@ class AddTaskDialog(QDialog):
         button_layout.addWidget(self.cancel_btn)
         
         self.create_btn = PrimaryPushButton("创建任务")
-        self.create_btn.clicked.connect(self.accept)
+        self.create_btn.clicked.connect(self.on_create_clicked)
         button_layout.addWidget(self.create_btn)
         
         layout.addLayout(button_layout)
@@ -230,3 +240,17 @@ class AddTaskDialog(QDialog):
             'duration': self.selected_duration,
             'images': self.image_urls.copy()
         }
+
+    def on_create_clicked(self):
+        idx = self.resolution_combo.currentIndex()
+        res = self.resolution_combo.currentData()
+        if res is None:
+            if idx == 0:
+                res = "16:9"
+            elif idx == 1:
+                res = "9:16"
+            else:
+                res = "16:9"
+        db_manager.save_config('add_task_default_resolution', res, 'string', '添加任务默认分辨率')
+        db_manager.save_config('add_task_default_duration', int(self.selected_duration), 'integer', '添加任务默认时长')
+        self.accept()
