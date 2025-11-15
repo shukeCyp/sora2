@@ -7,6 +7,7 @@
 from typing import List
 import json
 import requests
+from constants import API_CHAT_COMPLETIONS_URL
 from PyQt5.QtCore import QThread, pyqtSignal
 from database_manager import db_manager
 
@@ -30,7 +31,7 @@ class ScriptGenerationThread(QThread):
 
     def run(self):
         try:
-            base_url = 'https://api.shaohua.fun/v1/chat/completions'
+            base_url = API_CHAT_COMPLETIONS_URL
             headers = {
                 'Authorization': f'Bearer {self.api_key}',
                 'Content-Type': 'application/json'

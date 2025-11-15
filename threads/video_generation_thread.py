@@ -4,6 +4,7 @@
 
 from PyQt5.QtCore import QThread, pyqtSignal
 from sora_client import SoraClient
+from constants import API_BASE_URL
 from loguru import logger
 
 class VideoGenerationThread(QThread):
@@ -27,7 +28,7 @@ class VideoGenerationThread(QThread):
         """实际的视频生成实现"""
         try:
             # 使用SoraClient进行API调用
-            client = SoraClient(base_url="https://api.shaohua.fun", api_key=self.api_key)
+            client = SoraClient(base_url=API_BASE_URL, api_key=self.api_key)
 
             self.progress.emit("正在创建视频生成任务...")
 

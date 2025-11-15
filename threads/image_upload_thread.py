@@ -14,6 +14,7 @@ from requests.exceptions import ProxyError, ConnectionError
 from PyQt5.QtCore import QThread, pyqtSignal
 from loguru import logger
 from database_manager import db_manager
+from constants import API_BASE_URL
 
 class ImageUploadThread(QThread):
     """图片上传线程 - 通过 BASE_URL/v1/files 上传"""
@@ -50,7 +51,7 @@ class ImageUploadThread(QThread):
                 raise FileNotFoundError(f"图片文件不存在: {self.file_path}")
 
             # 从配置读取 base_url 与 api_key
-            base_url = "https://api.shaohua.fun"
+            base_url = API_BASE_URL
             api_key = db_manager.load_config('api_key', '')
             endpoint = f"{base_url.rstrip('/')}/v1/files"
 

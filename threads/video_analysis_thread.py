@@ -13,6 +13,7 @@ from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 from loguru import logger
 from database_manager import db_manager
+from constants import API_BASE_URL
 from utils.file_utils import format_file_size
 
 class VideoAnalysisThread(QThread):
@@ -82,7 +83,7 @@ class VideoAnalysisThread(QThread):
                 raise FileNotFoundError(f"视频文件不存在: {self.video_path}")
 
             # 读取 API 基础地址与密钥
-            base_url = "https://api.shaohua.fun"
+            base_url = API_BASE_URL
             api_key = db_manager.load_config('api_key', '')
             endpoint = f"{base_url.rstrip('/')}/v1/files"
 
@@ -194,11 +195,11 @@ class VideoAnalysisThread(QThread):
             logger.info(f"开始分析视频，URL: {video_url}")
             
             # 从数据库获取API基础地址（与设置一致），否则使用默认
-            api_proxy = "https://api.shaohua.fun"
+            api_proxy = API_BASE_URL
             logger.info(f"使用API代理地址: {api_proxy}")
             
             # 构建API请求
-            url = f"{api_proxy}/v1/chat/completions"
+            url = f"{api_proxy.rstrip('/')}/v1/chat/completions"
             logger.info(f"分析API URL: {url}")
             
             headers = {

@@ -4,6 +4,7 @@ AI 标题生成与文件名清理工具
 
 import re
 import requests
+from constants import API_CHAT_COMPLETIONS_URL
 from typing import Optional
 
 
@@ -36,7 +37,7 @@ def generate_ai_title(api_key: str, system_prompt: str, task_prompt: Optional[st
     try:
         if not api_key:
             return None
-        base_url = "https://api.shaohua.fun/v1/chat/completions"
+        base_url = API_CHAT_COMPLETIONS_URL
         # 组装消息：系统指令加入严格规则，用户消息仅传递生成提示词
         rules = (
             "你是视频标题生成助手。只返回一个中文视频标题，不要返回任何解释、标注或额外内容；"

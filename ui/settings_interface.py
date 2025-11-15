@@ -14,7 +14,7 @@ from qfluentwidgets import (
 )
 
 from database_manager import db_manager
-from version import __version__
+from constants import APP_VERSION, DISPLAY_API_PROXY_URL, WECHAT_ID
 
 class SettingsInterface(QWidget):
     """设置界面"""
@@ -41,7 +41,7 @@ class SettingsInterface(QWidget):
         version_layout.addWidget(version_title)
 
         # 版本号（统一来源）
-        version_label = BodyLabel(f'版本: v{__version__}')
+        version_label = BodyLabel(f'版本: v{APP_VERSION}')
         version_label.setStyleSheet("color: #666; font-size: 13px;")
         version_layout.addWidget(version_label)
 
@@ -52,7 +52,7 @@ class SettingsInterface(QWidget):
         api_prefix.setStyleSheet("color: #666; font-size: 13px;")
         api_url_layout.addWidget(api_prefix)
         
-        self.api_url_label = BodyLabel('https://api.shaohua.fun')
+        self.api_url_label = BodyLabel(DISPLAY_API_PROXY_URL)
         self.api_url_label.setStyleSheet("""
             color: #007AFF;
             font-size: 13px;
@@ -77,7 +77,7 @@ class SettingsInterface(QWidget):
         wechat_prefix.setStyleSheet("color: #666; font-size: 12px;")
         wechat_layout.addWidget(wechat_prefix)
 
-        self.wechat_label = BodyLabel('zhaxinyu--')
+        self.wechat_label = BodyLabel(WECHAT_ID)
         self.wechat_label.setStyleSheet("""
             color: #007AFF;
             font-size: 12px;
@@ -303,7 +303,7 @@ class SettingsInterface(QWidget):
             from PyQt5.QtWidgets import QApplication
             clipboard = QApplication.clipboard()
             if clipboard:
-                clipboard.setText('zhaxinyu--')
+                clipboard.setText(WECHAT_ID)
 
             # 显示复制成功提示
             from qfluentwidgets import InfoBar, InfoBarPosition
@@ -324,7 +324,7 @@ class SettingsInterface(QWidget):
         try:
             from PyQt5.QtGui import QDesktopServices
             from PyQt5.QtCore import QUrl
-            url = QUrl('https://api.shaohua.fun')
+            url = QUrl(DISPLAY_API_PROXY_URL)
             QDesktopServices.openUrl(url)
             
             from qfluentwidgets import InfoBar, InfoBarPosition

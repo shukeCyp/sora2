@@ -9,6 +9,7 @@ import time
 from typing import List, Dict, Optional, Union
 from enum import Enum
 import logging
+from constants import API_HOST
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -53,7 +54,7 @@ class SoraClient:
             'Accept': 'application/json',
             'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
             'Content-Type': 'application/json',
-            'Host': 'api.shaohua.fun',
+            'Host': API_HOST,
             'Connection': 'keep-alive'
         }
         self.session.headers.update(default_headers)

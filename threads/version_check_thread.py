@@ -9,7 +9,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from loguru import logger
 import requests
 
-from version import __version__ as CURRENT_VERSION, compare_versions
+from constants import APP_VERSION, GITEE_LATEST_RELEASE_API, GITEE_RELEASES_URL
+from version import compare_versions
 
 
 class VersionCheckThread(QThread):
@@ -19,7 +20,7 @@ class VersionCheckThread(QThread):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._latest_api = "https://gitee.com/api/v5/repos/shuk513/sora2/releases/latest"
+        self._latest_api = GITEE_LATEST_RELEASE_API
 
     def _extract_version(self, data: dict) -> str:
         # 尝试多个字段
@@ -34,7 +35,7 @@ class VersionCheckThread(QThread):
         url = (data or {}).get("html_url") or (data or {}).get("url")
         if isinstance(url, str) and url.startswith("http"):
             return url
-        return "https://gitee.com/shuk513/sora2/releases"
+        return GITEE_RELEASES_URL
 
     def _extract_body(self, data: dict) -> str:
         # 解析更新说明正文，兼容常见字段
@@ -48,9 +49,9 @@ class VersionCheckThread(QThread):
         result = {
             "ok": False,
             "has_update": False,
-            "current_version": CURRENT_VERSION,
+            "current_version": APP_VERSION,
             "latest_version": "",
-            "release_url": "https://gitee.com/shuk513/sora2/releases",
+            "release_url": GITEE_RELEASES_URL,
             "release_body": "",
             "error": "",
         }
@@ -77,7 +78,7 @@ class VersionCheckThread(QThread):
             result["ok"] = True
 
             if latest:
-                cmp = compare_versions(CURRENT_VERSION, latest)
+                cmp = compare_versions(APP_VERSION, latest)
                 result["has_update"] = (cmp < 0)
             else:
                 result["has_update"] = False

@@ -7,6 +7,7 @@ from datetime import datetime
 from PyQt5.QtCore import QThread, pyqtSignal
 from loguru import logger
 from sora_client import SoraClient
+from constants import API_BASE_URL
 from database_manager import db_manager
 
 class TaskStatusCheckThread(QThread):
@@ -49,7 +50,7 @@ class TaskStatusCheckThread(QThread):
                     api_key = db_manager.load_config('api_key', '')
                     if api_key:
                         try:
-                            client = SoraClient(base_url="https://api.shaohua.fun", api_key=api_key)
+                            client = SoraClient(base_url=API_BASE_URL, api_key=api_key)
                             result = client.query_task(task_id)
                             current_status = result.get('status', '')
 

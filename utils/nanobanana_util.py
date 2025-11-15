@@ -21,6 +21,7 @@ import json
 from typing import Optional, Dict, Any
 
 from database_manager import db_manager
+from constants import API_BASE_URL, API_HOST, API_CHAT_COMPLETIONS_URL
 
 
 def upload_image_to_bed(file_path: str, token: Optional[str] = None, timeout: int = 180) -> str:
@@ -30,7 +31,7 @@ def upload_image_to_bed(file_path: str, token: Optional[str] = None, timeout: in
     if not p.exists() or not p.is_file():
         raise FileNotFoundError(f"图片文件不存在: {file_path}")
 
-    base_url = "https://api.shaohua.fun"
+    base_url = API_BASE_URL
     api_key = db_manager.load_config('api_key', '') or ''
     endpoint = f"{base_url.rstrip('/')}/v1/files"
 
@@ -123,12 +124,12 @@ def call_image_chat_completion(
         raise ValueError("image_url 不能为空")
 
     # 强制使用固定 base_url 与配置中的 api_key
-    base_url = 'https://api.shaohua.fun'
+    base_url = API_BASE_URL
     api_key = db_manager.load_config('api_key', '') or ''
     if not api_key:
         raise RuntimeError("未配置 API Key（config.api_key），且未通过参数提供")
 
-    url = f"{base_url.rstrip('/')}/v1/chat/completions"
+    url = API_CHAT_COMPLETIONS_URL
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -180,7 +181,7 @@ def call_nano_banana_image_generation(
     if not api_key:
         raise RuntimeError("未配置 API Key（config.api_key）")
 
-    host = 'api.shaohua.fun'
+    host = API_HOST
     path = '/v1/images/generations'
 
     payload: Dict[str, Any] = {
@@ -224,7 +225,8 @@ def main():
     parser.add_argument("--prompt", required=True, help="提示词文本，例如：修改这个图片")
     parser.add_argument("--image", required=False, help="(可选) 本地图片路径，例如：/path/to/image.png")
     parser.add_argument("--api-key", dest="api_key", default=None, help="(已忽略) 始终使用配置 config.api_key")
-    parser.add_argument("--base-url", dest="base_url", default=None, help="(已忽略) 始终使用 https://api.shaohua.fun")
+    from constants import API_BASE_URL
+    parser.add_argument("--base-url", dest="base_url", default=None, help=f"(已忽略) 始终使用 {API_BASE_URL}")
     parser.add_argument("--model", default="nano-banana", help="模型名，默认 nano-banana")
     parser.add_argument("--timeout", type=int, default=180, help="请求超时秒数，默认 180")
 

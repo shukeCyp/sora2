@@ -70,6 +70,7 @@ from utils.file_utils import open_folder, open_file_location, format_file_size
 from utils.log_utils import pack_logs, get_log_file_count
 from utils.db_utils import check_database_health, get_database_info
 from utils.api_utils import extract_video_url_from_response, parse_api_error
+from constants import GITEE_RELEASES_URL
 
 
 class MainWindow(FluentWindow):
@@ -252,7 +253,7 @@ class MainWindow(FluentWindow):
 
             latest = result.get("latest_version", "")
             current = result.get("current_version", "")
-            release_url = result.get("release_url", "https://gitee.com/shuk513/sora2/releases")
+            release_url = result.get("release_url", GITEE_RELEASES_URL)
             body_text = result.get("release_body", "")
             # 摘要化，避免弹窗过长
             if body_text:

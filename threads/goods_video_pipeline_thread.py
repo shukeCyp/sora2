@@ -18,6 +18,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from loguru import logger
 
 from utils.nanobanana_util import upload_image_to_bed, call_nano_banana_image_generation
+from constants import API_BASE_URL, API_CHAT_COMPLETIONS_URL
 from database_manager import db_manager
 from sora_client import SoraClient
 
@@ -158,13 +159,13 @@ class GoodsVideoPipelineThread(QThread):
             self._emit("根据白底图与标题生成视频提示词…")
 
             # 固定 base_url，api_key 来自配置
-            base_url = 'https://api.shaohua.fun'
+            base_url = API_BASE_URL
             api_key = db_manager.load_config('api_key', '') or ''
             if not api_key:
                 raise RuntimeError("未配置API Key")
             self._log_info("提示词生成：调用 gpt-5-chat-latest /v1/chat/completions")
 
-            url = f"{base_url.rstrip('/')}/v1/chat/completions"
+            url = API_CHAT_COMPLETIONS_URL
             headers = {
                 "Accept": "application/json",
                 "Authorization": f"Bearer {api_key}",

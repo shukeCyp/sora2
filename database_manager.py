@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import platform
+from constants import API_BASE_URL
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from datetime import datetime
@@ -286,7 +287,7 @@ class DatabaseManager:
             # 插入默认配置
             default_configs = [
                 ('api_key', '', 'string', 'Sora API Key'),
-                ('api_base_url', 'https://api.shaohua.fun', 'string', 'API Base URL'),
+                ('api_base_url', API_BASE_URL, 'string', 'API Base URL'),
                 ('image_token', '1c17b11693cb5ec63859b091c5b9c1b2', 'string', '图床Token'),
                 ('default_model', 'sora-2', 'string', '默认模型'),
                 ('default_duration', '10', 'integer', '默认时长(秒)'),
